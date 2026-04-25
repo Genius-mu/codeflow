@@ -1,0 +1,206 @@
+@import "tailwindcss";
+
+@import url("https://fonts.googleapis.com/css2?family=Boldonse&family=Bricolage+Grotesque:opsz,wght@12..96,200..800&family=Bungee&family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=Outfit:wght@100..900&family=Playfair+Display:ital,wght@0,400..900;1,400..900&family=Stack+Sans+Headline:wght@200..700&family=Stack+Sans+Notch:wght@200..700&display=swap");
+
+@theme {
+  /* Background scale — dark slate, not pure black */
+  --color-bg-base: #0a0a0b;
+  --color-bg-surface: #111113;
+  --color-bg-elevated: #17171a;
+  --color-bg-border: #1f1f23;
+
+  /* Text scale */
+  --color-text-primary: #ededef;
+  --color-text-secondary: #a1a1aa;
+  --color-text-muted: #71717a;
+
+  /* Lime accent */
+  --color-accent: #a3e635;
+  --color-accent-hover: #bef264;
+  --color-accent-dim: #84cc16;
+  --color-accent-subtle: rgba(163, 230, 53, 0.12);
+
+  /* Font families */
+  --font-sans: "Inter", system-ui, sans-serif;
+  --font-display: "Bricolage Grotesque", "Inter", sans-serif;
+  --font-headline: "Stack Sans Headline", "Bricolage Grotesque", sans-serif;
+  --font-mono: "Stack Sans Notch", "JetBrains Mono", monospace;
+  --font-brand: "Boldonse", "Bricolage Grotesque", sans-serif;
+  --font-accent: "Bungee", sans-serif;
+  --font-serif: "Playfair Display", serif;
+  --font-outfit: "Outfit", sans-serif;
+
+  /* Animations */
+  --animate-fade-in: fadeIn 0.4s ease-out;
+  --animate-slide-up: slideUp 0.5s ease-out;
+  --animate-shimmer: shimmer 2s linear infinite;
+
+  @keyframes fadeIn {
+    0% {
+      opacity: 0;
+    }
+    100% {
+      opacity: 1;
+    }
+  }
+  @keyframes slideUp {
+    0% {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @keyframes shimmer {
+    0% {
+      background-position: -1000px 0;
+    }
+    100% {
+      background-position: 1000px 0;
+    }
+  }
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+  body {
+    background-color: var(--color-bg-base);
+    color: var(--color-text-primary);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    background-image:
+      radial-gradient(
+        circle at 15% 0%,
+        rgba(163, 230, 53, 0.06) 0%,
+        transparent 50%
+      ),
+      radial-gradient(
+        circle at 85% 100%,
+        rgba(163, 230, 53, 0.04) 0%,
+        transparent 50%
+      );
+    background-attachment: fixed;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+  }
+  ::selection {
+    background: var(--color-accent-subtle);
+    color: var(--color-text-primary);
+  }
+}
+
+/* Component classes — plain CSS so v4 doesn't choke on @apply chains */
+
+.glass {
+  background-color: color-mix(
+    in srgb,
+    var(--color-bg-surface) 80%,
+    transparent
+  );
+  backdrop-filter: blur(20px);
+  border: 1px solid var(--color-bg-border);
+}
+
+/* Buttons — shared base styles inlined into each variant */
+
+.btn-primary,
+.btn-secondary,
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  font-weight: 500;
+  transition: all 0.2s ease-out;
+  cursor: pointer;
+  user-select: none;
+}
+
+.btn-primary:active:not(:disabled),
+.btn-secondary:active:not(:disabled),
+.btn-ghost:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.btn-primary:disabled,
+.btn-secondary:disabled,
+.btn-ghost:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background-color: var(--color-accent);
+  color: var(--color-bg-base);
+  font-weight: 600;
+  box-shadow: 0 4px 14px rgba(163, 230, 53, 0.25);
+  border: none;
+}
+.btn-primary:hover:not(:disabled) {
+  background-color: var(--color-accent-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(163, 230, 53, 0.4);
+}
+
+.btn-secondary {
+  background-color: var(--color-bg-elevated);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-bg-border);
+}
+.btn-secondary:hover:not(:disabled) {
+  background-color: var(--color-bg-border);
+  border-color: var(--color-text-muted);
+}
+
+.btn-ghost {
+  background-color: transparent;
+  color: var(--color-text-secondary);
+  border: none;
+}
+.btn-ghost:hover:not(:disabled) {
+  color: var(--color-text-primary);
+  background-color: var(--color-bg-elevated);
+}
+
+.card {
+  background-color: var(--color-bg-surface);
+  border: 1px solid var(--color-bg-border);
+  border-radius: 0.75rem;
+  transition: all 0.3s ease;
+}
+.card-hover:hover {
+  border-color: color-mix(in srgb, var(--color-text-muted) 30%, transparent);
+  background-color: var(--color-bg-elevated);
+}
+
+.brand-mark {
+  font-family: var(--font-brand);
+  letter-spacing: -0.01em;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-bg-base);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-bg-border);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}

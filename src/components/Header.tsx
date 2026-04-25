@@ -1,0 +1,104 @@
+import { useState, useEffect, type FormEvent } from "react";
+import { Search, Code2, Loader2 } from "lucide-react";
+import { useAppStore } from "../lib/store";
+
+interface HeaderProps {
+  isLoading?: boolean;
+}
+
+export function Header({ isLoading = false }: HeaderProps) {
+  const username = useAppStore((s) => s.username);
+  const setUsername = useAppStore((s) => s.setUsername);
+
+  // Local input state — separated from the store so typing doesn't trigger
+  // a fetch on every keystroke. We only commit to the store on submit.
+  const [input, setInput] = useState(username);
+
+  // Keep local input in sync if username changes from elsewhere (e.g. reset)
+  useEffect(() => {
+    setInput(username);
+  }, [username]);
+
+  function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    const trimmed = input.trim();
+    if (!trimmed || trimmed === username) return;
+    setUsername(trimmed);
+  }
+
+  return (
+    <header className="sticky top-0 z-30 glass">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <div className="flex h-16 items-center justify-between gap-4">
+          {/* Brand */}
+          <div className="flex items-center gap-2.5 shrink-0">
+            <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-accent/10 ring-1 ring-accent/30">
+              <Code2 className="w-5 h-5 text-accent" strokeWidth={2.25} />
+            </div>
+            <span
+              className="brand-mark text-xl sm:text-2xl text-text-primary"
+              aria-label="CodeFlow"
+            >
+              Code<span className="text-accent">Flow</span>
+            </span>
+          </div>
+
+          {/* Search */}
+          <form
+            onSubmit={handleSubmit}
+            className="flex-1 max-w-md group"
+            role="search"
+          >
+            <div className="relative">
+              <Search
+                className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted transition-colors group-focus-within:text-accent pointer-events-none"
+                strokeWidth={2.25}
+              />
+              <input
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="Search a GitHub user…"
+                spellCheck={false}
+                autoComplete="off"
+                disabled={isLoading}
+                className="
+                  w-full pl-10 pr-24 py-2.5 rounded-lg
+                  bg-bg-surface border border-bg-border
+                  text-sm text-text-primary placeholder:text-text-muted
+                  font-mono
+                  outline-none transition-all duration-200
+                  focus:border-accent/50 focus:bg-bg-elevated
+                  focus:ring-2 focus:ring-accent/20
+                  disabled:opacity-60 disabled:cursor-not-allowed
+                "
+                aria-label="GitHub username"
+              />
+              <button
+                type="submit"
+                disabled={isLoading || !input.trim()}
+                className="
+                  absolute right-1.5 top-1/2 -translate-y-1/2
+                  px-3 py-1.5 rounded-md text-xs font-semibold
+                  bg-accent text-bg-base
+                  transition-all duration-200
+                  hover:bg-accent-hover hover:shadow-[0_0_12px_rgba(163,230,53,0.4)]
+                  active:scale-95
+                  disabled:opacity-40 disabled:cursor-not-allowed
+                  disabled:hover:shadow-none disabled:active:scale-100
+                  flex items-center gap-1.5
+                "
+              >
+                {isLoading ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  "Search"
+                )}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </header>
+  );
+}

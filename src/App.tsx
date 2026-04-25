@@ -5,6 +5,8 @@ import {
   Cell,
   LineChart,
   Line,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   Tooltip,
@@ -16,16 +18,17 @@ import {
   Star,
   GitFork,
   Code2,
-  Link as LinkIcon,
+  Users,
   MapPin,
   Building2,
-  Users,
+  Link as LinkIcon,
 } from "lucide-react";
 
 import { Header } from "./components/Header";
 import { MetricCard } from "./components/MetricCard";
 import { ChartContainer } from "./components/ChartContainer";
 import { Filters } from "./components/Filters";
+import { ReposTable } from "./components/ReposTable";
 
 import { useUser, useRepos, useCommits } from "./lib/hooks";
 import { useAppStore } from "./lib/store";
@@ -35,6 +38,7 @@ import {
   buildCommitTimeline,
   computeMetrics,
   formatCompact,
+  getTopReposByStars,
   CHART_COLORS,
 } from "./lib/utils";
 
@@ -67,6 +71,10 @@ export default function App() {
   const commitTimeline = useMemo(
     () => buildCommitTimeline(commitsQuery.data ?? [], 30),
     [commitsQuery.data],
+  );
+  const topRepos = useMemo(
+    () => getTopReposByStars(filteredRepos, 8),
+    [filteredRepos],
   );
 
   // Top-level errors (user not found, rate limit, etc.)
@@ -202,6 +210,70 @@ export default function App() {
                   </div>
                 </ChartContainer>
 
+                {/* Top repos */}
+                <ChartContainer
+                  title="Top repos by stars"
+                  subtitle="Highest-starred repositories"
+                  loading={reposQuery.isLoading}
+                  isEmpty={!reposQuery.isLoading && topRepos.length === 0}
+                  emptyMessage="No repos to rank"
+                >
+                  <ResponsiveContainer width="100%" height={280}>
+                    <BarChart
+                      data={topRepos}
+                      layout="vertical"
+                      margin={{ top: 5, right: 16, bottom: 5, left: 0 }}
+                    >
+                      <defs>
+                        <linearGradient
+                          id="barGradient"
+                          x1="0"
+                          y1="0"
+                          x2="1"
+                          y2="0"
+                        >
+                          <stop offset="0%" stopColor="#65a30d" />
+                          <stop offset="100%" stopColor="#a3e635" />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        stroke="var(--color-bg-border)"
+                        horizontal={false}
+                      />
+                      <XAxis
+                        type="number"
+                        stroke="var(--color-text-muted)"
+                        fontSize={10}
+                        tickLine={false}
+                        axisLine={false}
+                        allowDecimals={false}
+                      />
+                      <YAxis
+                        type="category"
+                        dataKey="name"
+                        stroke="var(--color-text-muted)"
+                        fontSize={10}
+                        tickLine={false}
+                        axisLine={false}
+                        width={110}
+                      />
+                      <Tooltip
+                        content={<CustomBarTooltip />}
+                        cursor={{
+                          fill: "var(--color-bg-elevated)",
+                          opacity: 0.4,
+                        }}
+                      />
+                      <Bar
+                        dataKey="stars"
+                        fill="url(#barGradient)"
+                        radius={[0, 4, 4, 0]}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </ChartContainer>
+
                 {/* Commits */}
                 <ChartContainer
                   title="Commit activity"
@@ -276,6 +348,9 @@ export default function App() {
                 </ChartContainer>
               </div>
             </div>
+
+            {/* Repos table */}
+            <ReposTable repos={filteredRepos} pageSize={10} />
 
             <Footer />
           </>
@@ -544,7 +619,13 @@ function Footer() {
 interface TooltipPayload {
   name?: string;
   value?: number;
-  payload?: { name?: string; percentage?: number; label?: string };
+  payload?: {
+    name?: string;
+    percentage?: number;
+    label?: string;
+    fullName?: string;
+    forks?: number;
+  };
 }
 
 function CustomPieTooltip({
@@ -582,6 +663,32 @@ function CustomLineTooltip({
       <div className="font-mono text-text-muted">{d.payload?.label}</div>
       <div className="font-mono text-accent tabular-nums font-semibold">
         {d.value} commit{d.value === 1 ? "" : "s"}
+      </div>
+    </div>
+  );
+}
+
+function CustomBarTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: TooltipPayload[];
+}) {
+  if (!active || !payload?.length) return null;
+  const d = payload[0];
+  const fullName = d.payload?.fullName;
+  const forks = d.payload?.forks ?? 0;
+  return (
+    <div className="glass rounded-lg px-3 py-2 text-xs shadow-xl">
+      <div className="font-mono text-text-primary font-semibold">
+        {fullName}
+      </div>
+      <div className="font-mono text-accent tabular-nums">
+        ★ {d.value} stars
+      </div>
+      <div className="font-mono text-text-muted tabular-nums">
+        ⑂ {forks} forks
       </div>
     </div>
   );

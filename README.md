@@ -101,4 +101,4 @@ MIT
 
 ## Built By
 
-Mustapha Adegbite
+Mustapha Adegbite - Software Engineer

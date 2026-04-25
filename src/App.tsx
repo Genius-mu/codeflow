@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   PieChart,
   Pie,
@@ -16,10 +16,10 @@ import {
   Star,
   GitFork,
   Code2,
-  Users,
+  Link as LinkIcon,
   MapPin,
   Building2,
-  Link as LinkIcon,
+  Users,
 } from "lucide-react";
 
 import { Header } from "./components/Header";
@@ -302,7 +302,14 @@ function WelcomeState() {
       </p>
       <div className="mt-6 flex flex-wrap gap-2 justify-center text-xs font-mono text-text-muted">
         <span>Try:</span>
-        {["torvalds", "gaearon", "tj", "sindresorhus"].map((u) => (
+        {[
+          "torvalds",
+          "gaearon",
+          "tj",
+          "sindresorhus",
+          "Genius-mu",
+          "summydev",
+        ].map((u) => (
           <Suggestion key={u} username={u} />
         ))}
       </div>
@@ -330,13 +337,98 @@ function Suggestion({ username }: { username: string }) {
 }
 
 function ErrorState({ message }: { message: string }) {
+  const isRateLimit = /rate limit/i.test(message);
+
+  if (isRateLimit) {
+    return <RateLimitState />;
+  }
+
   return (
-    <div className="card p-10 text-center animate-fade-in">
+    <div className="card p-10 text-center animate-fade-in max-w-lg mx-auto">
       <h2 className="font-display font-semibold text-xl text-text-primary">
         Something went wrong
       </h2>
-      <p className="mt-2 text-sm text-text-secondary max-w-md mx-auto">
-        {message}
+      <p className="mt-2 text-sm text-text-secondary">{message}</p>
+    </div>
+  );
+}
+
+function RateLimitState() {
+  const [token, setToken] = useState("");
+  const [saved, setSaved] = useState(false);
+
+  function handleSave() {
+    const trimmed = token.trim();
+    if (!trimmed) return;
+    localStorage.setItem("github_token", trimmed);
+    setSaved(true);
+    setTimeout(() => window.location.reload(), 600);
+  }
+
+  return (
+    <div className="card p-8 sm:p-10 text-center animate-fade-in max-w-xl mx-auto">
+      <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-accent/10 ring-1 ring-accent/30 mx-auto mb-4">
+        <Star className="w-6 h-6 text-accent" strokeWidth={2.25} />
+      </div>
+      <h2 className="font-display font-semibold text-xl text-text-primary tracking-tight">
+        GitHub rate limit reached
+      </h2>
+      <p className="mt-2 text-sm text-text-secondary leading-relaxed max-w-md mx-auto">
+        GitHub allows 60 unauthenticated requests per hour. Add a free personal
+        access token to bump that to 5,000/hr.
+      </p>
+
+      <ol className="mt-6 text-left text-sm text-text-secondary space-y-2 max-w-md mx-auto font-mono">
+        <li>
+          <span className="text-accent">1.</span> Open{" "}
+          <a
+            href="https://github.com/settings/tokens/new?description=CodeFlow&scopes="
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-accent hover:text-accent-hover underline underline-offset-2"
+          >
+            github.com/settings/tokens/new
+          </a>
+        </li>
+        <li>
+          <span className="text-accent">2.</span> Click{" "}
+          <span className="text-text-primary">Generate token</span> — no scopes
+          needed
+        </li>
+        <li>
+          <span className="text-accent">3.</span> Paste it below
+        </li>
+      </ol>
+
+      <div className="mt-6 flex gap-2 max-w-md mx-auto">
+        <input
+          type="password"
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+          placeholder="ghp_..."
+          spellCheck={false}
+          autoComplete="off"
+          className="
+            flex-1 px-3 py-2 rounded-lg
+            bg-bg-elevated border border-bg-border
+            text-sm text-text-primary placeholder:text-text-muted
+            font-mono
+            outline-none transition-all duration-200
+            focus:border-accent/50 focus:ring-2 focus:ring-accent/20
+          "
+        />
+        <button
+          onClick={handleSave}
+          disabled={!token.trim() || saved}
+          className="btn-primary text-sm whitespace-nowrap"
+        >
+          {saved ? "Saved ✓" : "Save & retry"}
+        </button>
+      </div>
+
+      <p className="mt-4 text-xs text-text-muted max-w-md mx-auto">
+        Your token stays in your browser's localStorage. It's only sent to
+        api.github.com.
       </p>
     </div>
   );

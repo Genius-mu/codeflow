@@ -98,3 +98,7 @@ Deployed on Vercel. Any static host works — Netlify, Cloudflare Pages, GitHub 
 ## License
 
 MIT
+
+## Built By
+
+Mustapha Adegbite

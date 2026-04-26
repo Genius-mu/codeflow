@@ -8,9 +8,11 @@ import {
   ExternalLink,
   ChevronLeft,
   ChevronRight,
+  Download,
+  Check,
 } from "lucide-react";
 import type { GitHubRepo } from "../lib/schemas";
-import { CHART_COLORS } from "../lib/utils";
+import { CHART_COLORS, reposToCSV, downloadCSV } from "../lib/utils";
 
 type SortKey =
   | "name"
@@ -23,6 +25,7 @@ type SortDir = "asc" | "desc";
 interface ReposTableProps {
   repos: GitHubRepo[];
   pageSize?: number;
+  exportFilename?: string;
 }
 
 const COLUMNS: { key: SortKey; label: string; align?: "left" | "right" }[] = [
@@ -63,10 +66,15 @@ function timeAgo(iso: string): string {
   return `${Math.floor(months / 12)}y ago`;
 }
 
-export function ReposTable({ repos, pageSize = 10 }: ReposTableProps) {
+export function ReposTable({
+  repos,
+  pageSize = 10,
+  exportFilename = "repos.csv",
+}: ReposTableProps) {
   const [sortKey, setSortKey] = useState<SortKey>("stargazers_count");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [page, setPage] = useState(0);
+  const [exported, setExported] = useState(false);
 
   function handleSort(key: SortKey) {
     if (key === sortKey) {
@@ -103,6 +111,20 @@ export function ReposTable({ repos, pageSize = 10 }: ReposTableProps) {
   const safePage = Math.min(page, totalPages - 1);
   const pageData = sorted.slice(safePage * pageSize, (safePage + 1) * pageSize);
 
+  /**
+   * Export the *currently sorted* list — not the original.
+   * If the user sorted by name asc, that's what they get in the CSV.
+   * Pagination doesn't apply to export — they get all rows.
+   */
+  function handleExport() {
+    if (sorted.length === 0) return;
+    const csv = reposToCSV(sorted);
+    downloadCSV(csv, exportFilename);
+    setExported(true);
+    // Revert button label after a moment so it's reusable
+    setTimeout(() => setExported(false), 1800);
+  }
+
   if (repos.length === 0) {
     return (
       <section className="card p-8 text-center text-text-muted text-sm animate-fade-in">
@@ -124,6 +146,46 @@ export function ReposTable({ repos, pageSize = 10 }: ReposTableProps) {
             {COLUMNS.find((c) => c.key === sortKey)?.label.toLowerCase()}
           </p>
         </div>
+
+        <button
+          onClick={handleExport}
+          disabled={sorted.length === 0}
+          className="
+            inline-flex items-center gap-1.5
+            px-3 py-1.5 rounded-lg
+            text-xs font-medium font-mono
+            bg-bg-elevated border border-bg-border text-text-secondary
+            transition-all duration-200
+            hover:text-accent hover:border-accent/40 hover:bg-accent/5
+            active:scale-95
+            disabled:opacity-40 disabled:cursor-not-allowed
+            disabled:hover:text-text-secondary disabled:hover:border-bg-border disabled:hover:bg-bg-elevated
+            group
+          "
+          aria-label="Export to CSV"
+        >
+          {exported ? (
+            <>
+              <Check
+                className="w-3.5 h-3.5 text-accent animate-fade-in"
+                strokeWidth={2.5}
+              />
+              Downloaded
+            </>
+          ) : (
+            <>
+              <Download
+                className="
+                  w-3.5 h-3.5
+                  transition-transform duration-200
+                  group-hover:translate-y-0.5
+                "
+                strokeWidth={2.25}
+              />
+              Export CSV
+            </>
+          )}
+        </button>
       </div>
 
       {/* Table — horizontal scroll on small screens */}
@@ -174,7 +236,7 @@ export function ReposTable({ repos, pageSize = 10 }: ReposTableProps) {
               >
                 {/* Repo name */}
                 <td className="px-5 sm:px-6 py-3 max-w-[260px]">
-                  <a
+                  <article
                     href={repo.html_url}
                     target="_blank"
                     rel="noopener noreferrer"
@@ -194,7 +256,7 @@ export function ReposTable({ repos, pageSize = 10 }: ReposTableProps) {
                         transition-opacity duration-150
                       "
                     />
-                  </a>
+                  </article>
                   {repo.description && (
                     <p className="text-xs text-text-muted mt-0.5 truncate">
                       {repo.description}

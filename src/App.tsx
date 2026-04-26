@@ -349,8 +349,12 @@ export default function App() {
               </div>
             </div>
 
-            {/* Repos table */}
-            <ReposTable repos={filteredRepos} pageSize={10} />
+            {/* Repos table — exports filename based on the username being viewed */}
+            <ReposTable
+              repos={filteredRepos}
+              pageSize={10}
+              exportFilename={`${username}-repos.csv`}
+            />
 
             <Footer />
           </>
@@ -379,7 +383,7 @@ function WelcomeState() {
         <span>Try:</span>
         {[
           "torvalds",
-          "gaearon",
+          "gaearon",git
           "tj",
           "sindresorhus",
           "Genius-mu",

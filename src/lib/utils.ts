@@ -99,7 +99,7 @@ export function buildCommitTimeline(
 }
 
 /**
- * Top N repos by star count — for the bar chart in Week 2.
+ * Top N repos by star count — for the bar chart.
  * Trims long names so they fit on the chart axis.
  */
 export interface TopRepoDatum {
@@ -195,3 +195,90 @@ export const CHART_COLORS = [
   "#15803d", // green-700
   "#d9f99d", // lime-200
 ];
+
+/* ───────────── CSV export ───────────── */
+
+/**
+ * Escape a single CSV cell.
+ * Per RFC 4180:
+ * - If the value contains a comma, quote, or newline → wrap in quotes
+ * - Inside quotes, escape literal quotes by doubling them (" → "")
+ *
+ * Without this, a repo description like 'A "great" tool, see https://x.com'
+ * would break the entire CSV by introducing extra columns.
+ */
+function escapeCSVCell(value: string | number | null | undefined): string {
+  if (value === null || value === undefined) return "";
+  const str = String(value);
+  if (/[",\n\r]/.test(str)) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
+/**
+ * Convert a list of repos to a CSV string.
+ * Includes the columns most useful for spreadsheet analysis — not every field GitHub returns.
+ */
+export function reposToCSV(repos: GitHubRepo[]): string {
+  const headers = [
+    "name",
+    "full_name",
+    "description",
+    "language",
+    "stars",
+    "forks",
+    "watchers",
+    "open_issues",
+    "is_fork",
+    "is_archived",
+    "topics",
+    "created_at",
+    "updated_at",
+    "url",
+  ];
+
+  const rows = repos.map((r) =>
+    [
+      r.name,
+      r.full_name,
+      r.description,
+      r.language,
+      r.stargazers_count,
+      r.forks_count,
+      r.watchers_count,
+      r.open_issues_count,
+      r.fork,
+      r.archived,
+      r.topics.join(" "), // space-separated keeps it valid as one cell
+      r.created_at,
+      r.updated_at,
+      r.html_url,
+    ]
+      .map(escapeCSVCell)
+      .join(","),
+  );
+
+  return [headers.join(","), ...rows].join("\n");
+}
+
+/**
+ * Trigger a browser download of CSV content.
+ * Works fully client-side — no server round trip.
+ *
+ * The BOM (Byte Order Mark) at the start makes Excel correctly detect UTF-8
+ * encoding, so accented characters / emoji in repo names don't get mangled.
+ */
+export function downloadCSV(csv: string, filename: string): void {
+  const blob = new Blob(["\uFEFF" + csv], {
+    type: "text/csv;charset=utf-8;",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}

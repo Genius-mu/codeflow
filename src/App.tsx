@@ -383,7 +383,7 @@ function WelcomeState() {
         <span>Try:</span>
         {[
           "torvalds",
-          "gaearon",git
+          "gaearon",
           "tj",
           "sindresorhus",
           "Genius-mu",

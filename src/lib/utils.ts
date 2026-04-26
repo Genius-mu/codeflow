@@ -204,10 +204,12 @@ export const CHART_COLORS = [
  * - If the value contains a comma, quote, or newline → wrap in quotes
  * - Inside quotes, escape literal quotes by doubling them (" → "")
  *
- * Without this, a repo description like 'A "great" tool, see https://x.com'
- * would break the entire CSV by introducing extra columns.
+ * Accepts every primitive a row might contain (booleans included — we coerce
+ * them to "true"/"false" strings, which is how spreadsheets display them).
  */
-function escapeCSVCell(value: string | number | null | undefined): string {
+function escapeCSVCell(
+  value: string | number | boolean | null | undefined,
+): string {
   if (value === null || value === undefined) return "";
   const str = String(value);
   if (/[",\n\r]/.test(str)) {

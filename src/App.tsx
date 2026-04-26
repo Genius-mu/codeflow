@@ -22,6 +22,8 @@ import {
   MapPin,
   Building2,
   Link as LinkIcon,
+  Activity,
+  KeyRound,
 } from "lucide-react";
 
 import { Header } from "./components/Header";
@@ -29,8 +31,9 @@ import { MetricCard } from "./components/MetricCard";
 import { ChartContainer } from "./components/ChartContainer";
 import { Filters } from "./components/Filters";
 import { ReposTable } from "./components/ReposTable";
+import { Heatmap } from "./components/Heatmap";
 
-import { useUser, useRepos, useCommits } from "./lib/hooks";
+import { useUser, useRepos, useCommits, useContributions } from "./lib/hooks";
 import { useAppStore } from "./lib/store";
 import {
   filterRepos,
@@ -50,10 +53,14 @@ export default function App() {
   const userQuery = useUser(username);
   const reposQuery = useRepos(username);
   const commitsQuery = useCommits(username, reposQuery.data, 30);
+  const contributionsQuery = useContributions(username);
 
   // Anything fetching counts as global loading for the header spinner
   const isLoading =
-    userQuery.isLoading || reposQuery.isLoading || commitsQuery.isFetching;
+    userQuery.isLoading ||
+    reposQuery.isLoading ||
+    commitsQuery.isFetching ||
+    contributionsQuery.isFetching;
 
   // Apply filters once. Memoized because every render of App would otherwise
   // re-walk the repo list — and chart components consume this many times.
@@ -78,10 +85,19 @@ export default function App() {
   );
 
   // Top-level errors (user not found, rate limit, etc.)
+  // Note: contribution errors are handled inline in the heatmap card —
+  // they shouldn't blow up the whole dashboard since they're token-related,
+  // not about the user existing.
   const fatalError =
     (userQuery.error as Error | null)?.message ??
     (reposQuery.error as Error | null)?.message ??
     null;
+
+  // Detect "needs token" specifically — drives a different empty state
+  const contributionsError = contributionsQuery.error as
+    | (Error & { status?: number })
+    | null;
+  const needsToken = contributionsError?.status === 401;
 
   return (
     <div className="min-h-screen">
@@ -111,6 +127,38 @@ export default function App() {
                 blog={userQuery.data.blog}
               />
             )}
+
+            {/* Contribution heatmap — full width, headline visualization */}
+            <section className="card p-5 sm:p-6 animate-slide-up">
+              <div className="flex items-start justify-between gap-3 mb-5 flex-wrap">
+                <div>
+                  <h3 className="font-display font-semibold text-base sm:text-lg text-text-primary tracking-tight flex items-center gap-2">
+                    <Activity
+                      className="w-4 h-4 text-accent"
+                      strokeWidth={2.25}
+                    />
+                    Contribution activity
+                  </h3>
+                  <p className="mt-0.5 text-xs text-text-muted">
+                    {contributionsQuery.data
+                      ? `${contributionsQuery.data.totalContributions.toLocaleString()} contributions in the last year`
+                      : "Last 12 months"}
+                  </p>
+                </div>
+              </div>
+
+              {contributionsQuery.isLoading ? (
+                <HeatmapSkeleton />
+              ) : needsToken ? (
+                <HeatmapTokenPrompt />
+              ) : contributionsError ? (
+                <p className="text-sm text-text-muted py-8 text-center font-mono">
+                  Couldn't load contribution data: {contributionsError.message}
+                </p>
+              ) : contributionsQuery.data ? (
+                <Heatmap calendar={contributionsQuery.data} />
+              ) : null}
+            </section>
 
             {/* Metric cards */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -186,7 +234,6 @@ export default function App() {
                     </PieChart>
                   </ResponsiveContainer>
 
-                  {/* Custom legend — much cleaner than Recharts' default */}
                   <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5 justify-center">
                     {languageData.slice(0, 8).map((d, i) => (
                       <div
@@ -363,6 +410,109 @@ export default function App() {
           </>
         )}
       </main>
+    </div>
+  );
+}
+
+/* ─────────── Heatmap support components ─────────── */
+
+/**
+ * Skeleton for the heatmap while loading.
+ * Matches the real heatmap's silhouette: ~7 rows tall, scrolling width.
+ */
+function HeatmapSkeleton() {
+  return (
+    <div className="overflow-x-auto -mx-1 px-1">
+      <div className="flex gap-[3px] py-2" aria-hidden>
+        {Array.from({ length: 53 }).map((_, w) => (
+          <div key={w} className="flex flex-col gap-[3px]">
+            {Array.from({ length: 7 }).map((_, d) => (
+              <div
+                key={d}
+                className="
+                  w-[11px] h-[11px] rounded-[2px]
+                  bg-bg-elevated relative overflow-hidden
+                "
+              >
+                <div
+                  className="
+                    absolute inset-0 -translate-x-full animate-shimmer
+                    bg-gradient-to-r from-transparent via-bg-border to-transparent
+                    bg-[length:1000px_100%]
+                  "
+                  style={{ animationDelay: `${(w * 7 + d) * 8}ms` }}
+                />
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * "Add a token" prompt shown when the user hasn't set one.
+ * GraphQL requires a token — there's no anonymous access — so we make the
+ * ask clear and easy with a single inline input.
+ */
+function HeatmapTokenPrompt() {
+  const [token, setToken] = useState("");
+  const [saved, setSaved] = useState(false);
+
+  function handleSave() {
+    const trimmed = token.trim();
+    if (!trimmed) return;
+    localStorage.setItem("github_token", trimmed);
+    setSaved(true);
+    setTimeout(() => window.location.reload(), 600);
+  }
+
+  return (
+    <div className="text-center py-8 px-4 animate-fade-in">
+      <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-accent/10 ring-1 ring-accent/30 mx-auto mb-3">
+        <KeyRound className="w-5 h-5 text-accent" strokeWidth={2.25} />
+      </div>
+      <p className="text-sm text-text-primary font-medium">
+        Contribution data needs a GitHub token
+      </p>
+      <p className="text-xs text-text-muted mt-1.5 max-w-md mx-auto">
+        GitHub's GraphQL API requires authentication.{" "}
+        <a
+          href="https://github.com/settings/tokens/new?description=CodeFlow&scopes="
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-accent hover:text-accent-hover underline underline-offset-2"
+        >
+          Create a free token
+        </a>{" "}
+        (no scopes needed).
+      </p>
+      <div className="mt-4 flex gap-2 max-w-sm mx-auto">
+        <input
+          type="password"
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+          placeholder="ghp_..."
+          spellCheck={false}
+          autoComplete="off"
+          className="
+            flex-1 px-3 py-2 rounded-lg
+            bg-bg-elevated border border-bg-border
+            text-sm text-text-primary placeholder:text-text-muted
+            font-mono
+            outline-none transition-all duration-200
+            focus:border-accent/50 focus:ring-2 focus:ring-accent/20
+          "
+        />
+        <button
+          onClick={handleSave}
+          disabled={!token.trim() || saved}
+          className="btn-primary text-sm whitespace-nowrap"
+        >
+          {saved ? "Saved ✓" : "Save"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -700,6 +850,3 @@ function CustomBarTooltip({
     </div>
   );
 }
-
-
-// Update Naa

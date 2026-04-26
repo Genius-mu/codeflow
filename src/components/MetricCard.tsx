@@ -1,5 +1,5 @@
+import { memo, type ReactNode } from "react";
 import { type LucideIcon } from "lucide-react";
-import { type ReactNode } from "react";
 
 interface MetricCardProps {
   label: string;
@@ -12,7 +12,7 @@ interface MetricCardProps {
   loading?: boolean;
 }
 
-export function MetricCard({
+function MetricCardComponent({
   label,
   value,
   icon: Icon,
@@ -24,8 +24,8 @@ export function MetricCard({
       <div className="card p-5 relative overflow-hidden">
         <div
           className="absolute inset-0 -translate-x-full animate-shimmer
-                        bg-gradient-to-r from-transparent via-bg-elevated to-transparent
-                        bg-[length:1000px_100%]"
+                     bg-gradient-to-r from-transparent via-bg-elevated to-transparent
+                     bg-[length:1000px_100%]"
         />
         <div className="space-y-3">
           <div className="h-3 w-20 rounded bg-bg-elevated" />
@@ -108,3 +108,10 @@ export function MetricCard({
     </div>
   );
 }
+
+/**
+ * Wrapped in memo: skip re-render when label/value/icon haven't changed.
+ * Important here because App re-renders on every filter change, but the
+ * metric cards only need to update when their actual numbers change.
+ */
+export const MetricCard = memo(MetricCardComponent);

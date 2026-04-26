@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Star, GitFork, X, SlidersHorizontal } from "lucide-react";
 import { useAppStore, selectIsFiltering } from "../lib/store";
 import { getUniqueLanguages } from "../lib/utils";
@@ -17,8 +17,40 @@ export function Filters({ repos }: FiltersProps) {
   const isFiltering = useAppStore(selectIsFiltering);
 
   // Derive language options from the actual repos — only show languages that exist.
-  // useMemo because getUniqueLanguages does work; recomputing every render is wasteful.
   const availableLanguages = useMemo(() => getUniqueLanguages(repos), [repos]);
+
+  /**
+   * Local slider value — debounces store updates so dragging the slider
+   * doesn't fire 50+ re-renders. The visible thumb position updates instantly
+   * (good UX), but the store + downstream charts only update when the user
+   * pauses for 150ms.
+   */
+  const [localStars, setLocalStars] = useState(filters.minStars);
+  const debounceRef = useRef<number | null>(null);
+
+  // Keep local in sync if filters reset from elsewhere
+  useEffect(() => {
+    setLocalStars(filters.minStars);
+  }, [filters.minStars]);
+
+  function handleSliderChange(value: number) {
+    setLocalStars(value); // instant visual feedback
+
+    // Cancel any pending commit and schedule a new one
+    if (debounceRef.current) {
+      window.clearTimeout(debounceRef.current);
+    }
+    debounceRef.current = window.setTimeout(() => {
+      setMinStars(value);
+    }, 150);
+  }
+
+  // Cleanup on unmount — prevents stray timer firing after component is gone
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) window.clearTimeout(debounceRef.current);
+    };
+  }, []);
 
   if (repos.length === 0) return null;
 
@@ -97,7 +129,7 @@ export function Filters({ repos }: FiltersProps) {
           </div>
         )}
 
-        {/* Min stars — range slider */}
+        {/* Min stars — debounced range slider */}
         <div>
           <div className="flex items-center justify-between mb-2.5">
             <label
@@ -108,8 +140,8 @@ export function Filters({ repos }: FiltersProps) {
               Minimum stars
             </label>
             <span className="font-mono text-sm font-semibold text-accent tabular-nums">
-              {filters.minStars}
-              {filters.minStars >= 1000 && "+"}
+              {localStars}
+              {localStars >= 1000 && "+"}
             </span>
           </div>
           <input
@@ -118,8 +150,8 @@ export function Filters({ repos }: FiltersProps) {
             min={0}
             max={1000}
             step={10}
-            value={filters.minStars}
-            onChange={(e) => setMinStars(Number(e.target.value))}
+            value={localStars}
+            onChange={(e) => handleSliderChange(Number(e.target.value))}
             className="lime-range w-full"
           />
           <div className="flex justify-between mt-1 text-[10px] font-mono text-text-muted">

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import {
   ArrowUp,
   ArrowDown,
@@ -66,7 +66,7 @@ function timeAgo(iso: string): string {
   return `${Math.floor(months / 12)}y ago`;
 }
 
-export function ReposTable({
+function ReposTableComponent({
   repos,
   pageSize = 10,
   exportFilename = "repos.csv",
@@ -78,14 +78,12 @@ export function ReposTable({
 
   function handleSort(key: SortKey) {
     if (key === sortKey) {
-      // Same column → flip direction
       setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     } else {
-      // New column → reset to descending (most useful default for numbers)
       setSortKey(key);
       setSortDir("desc");
     }
-    setPage(0); // reset pagination when sort changes
+    setPage(0);
   }
 
   // Sort + paginate. Memoized so re-renders from elsewhere don't re-sort.
@@ -94,7 +92,6 @@ export function ReposTable({
     copy.sort((a, b) => {
       let av: string | number = a[sortKey] ?? "";
       let bv: string | number = b[sortKey] ?? "";
-      // Handle nulls (language can be null)
       if (av === null) av = "";
       if (bv === null) bv = "";
       if (typeof av === "string" && typeof bv === "string") {
@@ -111,17 +108,11 @@ export function ReposTable({
   const safePage = Math.min(page, totalPages - 1);
   const pageData = sorted.slice(safePage * pageSize, (safePage + 1) * pageSize);
 
-  /**
-   * Export the *currently sorted* list — not the original.
-   * If the user sorted by name asc, that's what they get in the CSV.
-   * Pagination doesn't apply to export — they get all rows.
-   */
   function handleExport() {
     if (sorted.length === 0) return;
     const csv = reposToCSV(sorted);
     downloadCSV(csv, exportFilename);
     setExported(true);
-    // Revert button label after a moment so it's reusable
     setTimeout(() => setExported(false), 1800);
   }
 
@@ -234,9 +225,8 @@ export function ReposTable({
                   group
                 "
               >
-                {/* Repo name */}
-                <td className="px-5 sm:px-6 py-3 max-w-[260px]">
-                  <article
+                <td className="px-5 sm:px-6 py-3 max-w-65">
+                  <a
                     href={repo.html_url}
                     target="_blank"
                     rel="noopener noreferrer"
@@ -256,7 +246,7 @@ export function ReposTable({
                         transition-opacity duration-150
                       "
                     />
-                  </article>
+                  </a>
                   {repo.description && (
                     <p className="text-xs text-text-muted mt-0.5 truncate">
                       {repo.description}
@@ -264,7 +254,6 @@ export function ReposTable({
                   )}
                 </td>
 
-                {/* Language */}
                 <td className="px-5 sm:px-6 py-3">
                   {repo.language ? (
                     <span className="inline-flex items-center gap-1.5 text-xs text-text-secondary">
@@ -279,7 +268,6 @@ export function ReposTable({
                   )}
                 </td>
 
-                {/* Stars */}
                 <td className="px-5 sm:px-6 py-3 text-right">
                   <span className="inline-flex items-center gap-1 font-mono text-text-secondary tabular-nums">
                     <Star className="w-3.5 h-3.5 text-text-muted" />
@@ -287,7 +275,6 @@ export function ReposTable({
                   </span>
                 </td>
 
-                {/* Forks */}
                 <td className="px-5 sm:px-6 py-3 text-right">
                   <span className="inline-flex items-center gap-1 font-mono text-text-secondary tabular-nums">
                     <GitFork className="w-3.5 h-3.5 text-text-muted" />
@@ -295,7 +282,6 @@ export function ReposTable({
                   </span>
                 </td>
 
-                {/* Updated */}
                 <td className="px-5 sm:px-6 py-3 text-right">
                   <span className="font-mono text-xs text-text-muted whitespace-nowrap">
                     {timeAgo(repo.updated_at)}
@@ -351,9 +337,6 @@ export function ReposTable({
   );
 }
 
-/**
- * Sort indicator that swaps icon and color based on whether the column is active.
- */
 function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
   if (!active) {
     return <ArrowUpDown className="w-3 h-3 opacity-50" strokeWidth={2.25} />;
@@ -364,3 +347,11 @@ function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
     <ArrowDown className="w-3 h-3" strokeWidth={2.5} />
   );
 }
+
+/**
+ * Wrapped in memo: this is the heaviest component on the page (sorts +
+ * paginates a list of up to 100 items). When parents re-render due to
+ * unrelated state (filter chips, theme toggle, etc.), we want to skip
+ * the table entirely if `repos` reference hasn't changed.
+ */
+export const ReposTable = memo(ReposTableComponent);

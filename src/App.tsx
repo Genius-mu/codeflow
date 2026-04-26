@@ -156,6 +156,7 @@ export default function App() {
                   loading={reposQuery.isLoading}
                   isEmpty={!reposQuery.isLoading && languageData.length === 0}
                   emptyMessage="No repos match your filters"
+                  skeletonType="donut"
                 >
                   <ResponsiveContainer width="100%" height={280}>
                     <PieChart>
@@ -217,6 +218,7 @@ export default function App() {
                   loading={reposQuery.isLoading}
                   isEmpty={!reposQuery.isLoading && topRepos.length === 0}
                   emptyMessage="No repos to rank"
+                  skeletonType="bars"
                 >
                   <ResponsiveContainer width="100%" height={280}>
                     <BarChart
@@ -284,6 +286,7 @@ export default function App() {
                     commitTimeline.every((d) => d.commits === 0)
                   }
                   emptyMessage="No commits in the last 30 days"
+                  skeletonType="line"
                 >
                   <ResponsiveContainer width="100%" height={280}>
                     <LineChart
@@ -349,7 +352,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* Repos table — exports filename based on the username being viewed */}
+            {/* Repos table */}
             <ReposTable
               repos={filteredRepos}
               pageSize={10}

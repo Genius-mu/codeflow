@@ -37,15 +37,45 @@ const DEFAULT_FILTERS: Filters = {
 };
 
 /**
+ * Read the initial username from ?user= in the URL.
+ * Runs once at module load. Falls back to empty string.
+ */
+function readUsernameFromURL(): string {
+  if (typeof window === "undefined") return "";
+  const params = new URLSearchParams(window.location.search);
+  return (params.get("user") ?? "").trim();
+}
+
+/**
+ * Sync username back to the URL without triggering a navigation.
+ * - replaceState (not pushState) → doesn't pollute browser history with every search
+ * - Empty username → remove the ?user= param entirely (clean URLs)
+ */
+function syncUsernameToURL(username: string): void {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  if (username) {
+    url.searchParams.set("user", username);
+  } else {
+    url.searchParams.delete("user");
+  }
+  window.history.replaceState({}, "", url.toString());
+}
+
+/**
  * Single global store.
  * Components subscribe with selectors:
  *   const username = useAppStore(s => s.username)
  * Only that slice causes re-renders, not the whole store.
  */
 export const useAppStore = create<AppState>((set) => ({
-  // Search
-  username: "",
-  setUsername: (username) => set({ username: username.trim() }),
+  // Search — initial value pulled from URL
+  username: readUsernameFromURL(),
+  setUsername: (username) => {
+    const trimmed = username.trim();
+    syncUsernameToURL(trimmed);
+    set({ username: trimmed });
+  },
 
   // Filters
   filters: DEFAULT_FILTERS,
@@ -76,11 +106,19 @@ export const useAppStore = create<AppState>((set) => ({
 }));
 
 /**
+ * Listen for browser back/forward navigation and sync the store.
+ * Without this, hitting Back wouldn't update the dashboard.
+ */
+if (typeof window !== "undefined") {
+  window.addEventListener("popstate", () => {
+    const username = readUsernameFromURL();
+    useAppStore.setState({ username });
+  });
+}
+
+/**
  * Derived selector — returns true if any filter is active.
  * Used to show a badge/indicator on the filters button.
- *
- * Defined as a separate function (not a hook here) so it can be reused
- * with shallow comparison if needed later.
  */
 export const selectIsFiltering = (state: AppState): boolean =>
   state.filters.languages.length > 0 ||

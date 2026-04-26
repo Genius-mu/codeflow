@@ -73,9 +73,63 @@ export const GitHubReposSchema = z.array(GitHubRepoSchema);
 export const GitHubCommitsSchema = z.array(GitHubCommitSchema);
 
 /**
+ * Contribution calendar — from the GraphQL API.
+ *
+ * Shape returned by the GraphQL query:
+ *   user.contributionsCollection.contributionCalendar = {
+ *     totalContributions: number,
+ *     weeks: [{ contributionDays: [{ date, contributionCount, color }] }]
+ *   }
+ *
+ * We flatten this into a simpler shape (an array of days) in the API layer
+ * because the nested weeks structure is awkward to render with.
+ */
+export const ContributionDaySchema = z.object({
+  date: z.string(), // "YYYY-MM-DD"
+  contributionCount: z.number(),
+  color: z.string(), // GitHub returns its own hex but we'll override with our palette
+});
+
+export const ContributionCalendarSchema = z.object({
+  totalContributions: z.number(),
+  weeks: z.array(
+    z.object({
+      contributionDays: z.array(ContributionDaySchema),
+    }),
+  ),
+});
+
+/**
+ * The full GraphQL response wrapper.
+ * GraphQL always responds with `{ data: { ... } }` or `{ errors: [...] }`.
+ */
+export const ContributionsResponseSchema = z.object({
+  data: z
+    .object({
+      user: z
+        .object({
+          contributionsCollection: z.object({
+            contributionCalendar: ContributionCalendarSchema,
+          }),
+        })
+        .nullable(),
+    })
+    .optional(),
+  errors: z
+    .array(
+      z.object({
+        message: z.string(),
+        type: z.string().optional(),
+      }),
+    )
+    .optional(),
+});
+
+/**
  * TypeScript types — inferred from schemas so types and validation never drift.
- * Import these anywhere you need the data shape.
  */
 export type GitHubUser = z.infer<typeof GitHubUserSchema>;
 export type GitHubRepo = z.infer<typeof GitHubRepoSchema>;
 export type GitHubCommit = z.infer<typeof GitHubCommitSchema>;
+export type ContributionDay = z.infer<typeof ContributionDaySchema>;
+export type ContributionCalendar = z.infer<typeof ContributionCalendarSchema>;

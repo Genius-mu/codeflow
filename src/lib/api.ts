@@ -3,9 +3,11 @@ import {
   GitHubUserSchema,
   GitHubReposSchema,
   GitHubCommitsSchema,
+  ContributionsResponseSchema,
   type GitHubUser,
   type GitHubRepo,
   type GitHubCommit,
+  type ContributionCalendar,
 } from "./schemas";
 
 /**
@@ -28,16 +30,16 @@ export class GitHubAPIError extends Error {
  * Reads the optional GitHub token from localStorage.
  * No token → 60 requests/hour. With token → 5000/hour.
  * Set in browser console: localStorage.setItem('github_token', 'ghp_...')
+ *
+ * Note: the GraphQL endpoint REQUIRES a token — there's no anonymous access.
+ * The contributions feature gracefully shows a "needs token" empty state if missing.
  */
 function getToken(): string | null {
   return localStorage.getItem("github_token");
 }
 
 /**
- * Pre-configured axios instance.
- * - Base URL set once
- * - Auth header injected per-request via interceptor (so it picks up token changes live)
- * - JSON accept header per GitHub's recommendation
+ * Pre-configured axios instance for the REST API.
  */
 const client = axios.create({
   baseURL: "https://api.github.com",
@@ -58,7 +60,6 @@ client.interceptors.request.use((config) => {
 
 /**
  * Translates raw axios errors into our typed GitHubAPIError.
- * Centralized here so every API function gets the same friendly errors.
  */
 function handleError(error: unknown): never {
   if (error instanceof AxiosError) {
@@ -89,7 +90,6 @@ function handleError(error: unknown): never {
 
 /**
  * Fetch a user's profile.
- * GET /users/{username}
  */
 export async function fetchUser(username: string): Promise<GitHubUser> {
   try {
@@ -102,10 +102,6 @@ export async function fetchUser(username: string): Promise<GitHubUser> {
 
 /**
  * Fetch a user's public repositories.
- * GET /users/{username}/repos?per_page=100&sort=updated
- *
- * 100 is GitHub's max page size. For users with >100 repos we'd need pagination,
- * but for a portfolio dashboard 100 most-recently-updated is plenty.
  */
 export async function fetchRepos(username: string): Promise<GitHubRepo[]> {
   try {
@@ -120,9 +116,6 @@ export async function fetchRepos(username: string): Promise<GitHubRepo[]> {
 
 /**
  * Fetch recent commits for a single repo.
- * GET /repos/{owner}/{repo}/commits?since={date}
- *
- * `since` filters server-side — much faster than fetching everything and filtering client-side.
  */
 export async function fetchRepoCommits(
   owner: string,
@@ -135,7 +128,6 @@ export async function fetchRepoCommits(
     });
     return GitHubCommitsSchema.parse(data);
   } catch (err) {
-    // Empty repos return 409. Not a real error — just no commits yet.
     if (err instanceof AxiosError && err.response?.status === 409) {
       return [];
     }
@@ -145,11 +137,6 @@ export async function fetchRepoCommits(
 
 /**
  * Fetch commits across ALL of a user's repos in parallel.
- * Used by the "commits over time" chart.
- *
- * Why Promise.allSettled vs Promise.all:
- * One repo failing (deleted, archived, permissions) shouldn't kill the whole chart.
- * We collect what we can and ignore the rest.
  */
 export async function fetchAllRecentCommits(
   username: string,
@@ -159,7 +146,6 @@ export async function fetchAllRecentCommits(
   const since = new Date();
   since.setDate(since.getDate() - daysBack);
 
-  // Skip forks — they pollute the activity chart with commits the user didn't write.
   const ownRepos = repos.filter((r) => !r.fork);
 
   const results = await Promise.allSettled(
@@ -172,4 +158,84 @@ export async function fetchAllRecentCommits(
         r.status === "fulfilled",
     )
     .flatMap((r) => r.value);
+}
+
+/* ───────────── GraphQL: contribution calendar ───────────── */
+
+/**
+ * The GraphQL query — kept as a plain string.
+ * GitHub's contributionsCollection returns the calendar grouped by week,
+ * which is convenient for rendering (each week = one column in the heatmap).
+ */
+const CONTRIBUTIONS_QUERY = `
+  query ($username: String!) {
+    user(login: $username) {
+      contributionsCollection {
+        contributionCalendar {
+          totalContributions
+          weeks {
+            contributionDays {
+              date
+              contributionCount
+              color
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+/**
+ * Fetch the contribution calendar via GraphQL.
+ *
+ * Why GraphQL: the contribution graph data isn't exposed on the REST API.
+ * Why this is the only GraphQL call in CodeFlow: every other endpoint we use
+ * is cleaner via REST. Mixing styles only because the data demands it.
+ *
+ * Auth: REQUIRES a token — GraphQL has no anonymous access. We surface that
+ * with a typed error so the UI can show a clear "add token" prompt.
+ */
+export async function fetchContributions(
+  username: string,
+): Promise<ContributionCalendar> {
+  const token = getToken();
+  if (!token) {
+    throw new GitHubAPIError(
+      "GitHub token required for contribution data",
+      401,
+    );
+  }
+
+  try {
+    const { data } = await axios.post(
+      "https://api.github.com/graphql",
+      {
+        query: CONTRIBUTIONS_QUERY,
+        variables: { username },
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        timeout: 15000,
+      },
+    );
+
+    const parsed = ContributionsResponseSchema.parse(data);
+
+    // GraphQL puts errors in the body, not in HTTP status — handle them here
+    if (parsed.errors?.length) {
+      throw new GitHubAPIError(parsed.errors[0].message, 400);
+    }
+    if (!parsed.data?.user) {
+      throw new GitHubAPIError("User not found", 404);
+    }
+
+    return parsed.data.user.contributionsCollection.contributionCalendar;
+  } catch (err) {
+    if (err instanceof GitHubAPIError) throw err;
+    handleError(err);
+  }
 }

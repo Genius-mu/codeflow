@@ -48,6 +48,23 @@ import {
   CHART_COLORS,
 } from "./lib/utils";
 
+/**
+ * Shared Recharts tooltip styles.
+ *
+ * `isAnimationActive={false}` is the key fix for "tooltip starts at wrong
+ * position then transitions" — Recharts defaults to animating tooltip
+ * position, which on first hover means it slides in from the chart's
+ * top-left corner. Disabling animation makes the tooltip appear instantly
+ * at the cursor.
+ *
+ * `wrapperStyle.outline: 'none'` removes the default focus ring that
+ * Recharts adds to the tooltip wrapper.
+ */
+const TOOLTIP_PROPS = {
+  isAnimationActive: false,
+  wrapperStyle: { outline: "none" },
+} as const;
+
 export default function App() {
   const username = useAppStore((s) => s.username);
   const filters = useAppStore((s) => s.filters);
@@ -207,6 +224,7 @@ export default function App() {
                         paddingAngle={2}
                         stroke="var(--color-bg-surface)"
                         strokeWidth={2}
+                        isAnimationActive={false}
                       >
                         {languageData.map((_, i) => (
                           <Cell
@@ -216,6 +234,7 @@ export default function App() {
                         ))}
                       </Pie>
                       <Tooltip
+                        {...TOOLTIP_PROPS}
                         content={<CustomPieTooltip />}
                         cursor={{ fill: "transparent" }}
                       />
@@ -295,6 +314,7 @@ export default function App() {
                         width={110}
                       />
                       <Tooltip
+                        {...TOOLTIP_PROPS}
                         content={<CustomBarTooltip />}
                         cursor={{
                           fill: "var(--color-bg-elevated)",
@@ -305,6 +325,7 @@ export default function App() {
                         dataKey="stars"
                         fill="url(#barGradient)"
                         radius={[0, 4, 4, 0]}
+                        isAnimationActive={false}
                       />
                     </BarChart>
                   </ResponsiveContainer>
@@ -359,6 +380,7 @@ export default function App() {
                         allowDecimals={false}
                       />
                       <Tooltip
+                        {...TOOLTIP_PROPS}
                         content={<CustomLineTooltip />}
                         cursor={{
                           stroke: "var(--color-accent)",
@@ -378,6 +400,7 @@ export default function App() {
                           stroke: "var(--color-bg-surface)",
                           strokeWidth: 2,
                         }}
+                        isAnimationActive={false}
                       />
                     </LineChart>
                   </ResponsiveContainer>

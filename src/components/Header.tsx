@@ -29,32 +29,33 @@ export function Header({ isLoading = false }: HeaderProps) {
 
   return (
     <header className="sticky top-0 z-30 glass">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="flex h-16 items-center justify-between gap-2 sm:gap-3">
-          {/* Brand */}
-          <div className="flex items-center gap-2.5 shrink-0">
-            <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-accent/10 ring-1 ring-accent/30">
+      <div className="mx-auto max-w-7xl px-3 sm:px-6 lg:px-8">
+        <div className="flex h-16 items-center gap-2 sm:gap-3">
+          {/* Brand — icon always visible, wordmark only ≥ sm */}
+          <a
+            href="/"
+            className="flex items-center gap-2 shrink-0 group"
+            aria-label="CodeFlow home"
+          >
+            <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-accent/10 ring-1 ring-accent/30 transition-transform group-hover:scale-105">
               <Code2 className="w-5 h-5 text-accent" strokeWidth={2.25} />
             </div>
+            {/* Wordmark hidden on mobile, lets the search breathe */}
             <span
-              className="brand-mark text-xl sm:text-2xl text-text-primary"
-              aria-label="CodeFlow"
+              className="brand-mark text-xl sm:text-2xl text-text-primary hidden sm:inline"
+              aria-hidden="true"
             >
               Code<span className="text-accent">Flow</span>
             </span>
-          </div>
+          </a>
 
-          {/* Search */}
+          {/* Search — claims the rest of the row */}
           <form
             onSubmit={handleSubmit}
-            className="flex-1 max-w-md group"
+            className="flex-1 min-w-0 group"
             role="search"
           >
             <div className="relative">
-              <Search
-                className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted transition-colors group-focus-within:text-accent pointer-events-none"
-                strokeWidth={2.25}
-              />
               <input
                 type="text"
                 value={input}
@@ -64,7 +65,7 @@ export function Header({ isLoading = false }: HeaderProps) {
                 autoComplete="off"
                 disabled={isLoading}
                 className="
-                  w-full pl-10 pr-24 py-2.5 rounded-lg
+                  w-full pl-3 pr-11 py-2.5 rounded-lg
                   bg-bg-surface border border-bg-border
                   text-sm text-text-primary placeholder:text-text-muted
                   font-mono
@@ -78,22 +79,27 @@ export function Header({ isLoading = false }: HeaderProps) {
               <button
                 type="submit"
                 disabled={isLoading || !input.trim()}
+                aria-label="Search"
+                title="Search"
                 className="
                   absolute right-1.5 top-1/2 -translate-y-1/2
-                  px-3 py-1.5 rounded-md text-xs font-semibold
+                  w-8 h-8 rounded-md
                   bg-accent text-bg-base
+                  flex items-center justify-center
                   transition-all duration-200
                   hover:bg-accent-hover hover:shadow-[0_0_12px_var(--accent-glow-strong)]
-                  active:scale-95
+                  active:scale-90
                   disabled:opacity-40 disabled:cursor-not-allowed
                   disabled:hover:shadow-none disabled:active:scale-100
-                  flex items-center gap-1.5
                 "
               >
                 {isLoading ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <Loader2
+                    className="w-4 h-4 animate-spin"
+                    strokeWidth={2.25}
+                  />
                 ) : (
-                  "Search"
+                  <Search className="w-4 h-4" strokeWidth={2.5} />
                 )}
               </button>
             </div>
@@ -103,7 +109,6 @@ export function Header({ isLoading = false }: HeaderProps) {
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <AuthControls />
 
-            {/* Theme toggle */}
             <button
               type="button"
               onClick={toggleTheme}

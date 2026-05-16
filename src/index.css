@@ -1,6 +1,6 @@
-@import "tailwindcss";
-
 @import url("https://fonts.googleapis.com/css2?family=Boldonse&family=Bricolage+Grotesque:opsz,wght@12..96,200..800&family=Bungee&family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=Outfit:wght@100..900&family=Playfair+Display:ital,wght@0,400..900;1,400..900&family=Stack+Sans+Headline:wght@200..700&family=Stack+Sans+Notch:wght@200..700&display=swap");
+
+@import "tailwindcss";
 
 @theme {
   /* DARK THEME — the default. Background scale: not pure black */
@@ -93,7 +93,7 @@ html.light {
 
 @layer base {
   html {
-    /* Smooth color transitions when switching themes — only on theme-affected props */
+    /* Smooth color transitions when switching themes */
     transition:
       background-color 0.3s ease,
       color 0.3s ease;
@@ -131,8 +131,7 @@ html.light {
     color: var(--color-text-primary);
   }
 
-  /* Most elements should ease their colors during theme change.
-     Targeting common props avoids the "everything animates everything" trap. */
+  /* Most elements should ease their colors during theme change. */
   *,
   *::before,
   *::after {
@@ -140,8 +139,6 @@ html.light {
     transition-duration: 0.25s;
     transition-timing-function: ease;
   }
-  /* But not on user-driven interactions — those need to feel instant.
-     The classes that already specify their own transition durations win out. */
 }
 
 /* Component classes — plain CSS so v4 doesn't choke on @apply chains */

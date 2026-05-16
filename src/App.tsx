@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import {
   PieChart,
   Pie,
@@ -23,7 +23,9 @@ import {
   Building2,
   Link as LinkIcon,
   Activity,
-  KeyRound,
+  LogIn,
+  X,
+  AlertCircle,
 } from "lucide-react";
 
 import { Header } from "./components/Header";
@@ -35,6 +37,7 @@ import { Heatmap } from "./components/Heatmap";
 
 import { useUser, useRepos, useCommits, useContributions } from "./lib/hooks";
 import { useAppStore } from "./lib/store";
+import { useAuthStore } from "./lib/auth";
 import {
   filterRepos,
   groupReposByLanguage,
@@ -55,21 +58,17 @@ export default function App() {
   const commitsQuery = useCommits(username, reposQuery.data, 30);
   const contributionsQuery = useContributions(username);
 
-  // Anything fetching counts as global loading for the header spinner
   const isLoading =
     userQuery.isLoading ||
     reposQuery.isLoading ||
     commitsQuery.isFetching ||
     contributionsQuery.isFetching;
 
-  // Apply filters once. Memoized because every render of App would otherwise
-  // re-walk the repo list — and chart components consume this many times.
   const filteredRepos = useMemo(
     () => filterRepos(reposQuery.data ?? [], filters),
     [reposQuery.data, filters],
   );
 
-  // Derived data for the visualizations
   const metrics = useMemo(() => computeMetrics(filteredRepos), [filteredRepos]);
   const languageData = useMemo(
     () => groupReposByLanguage(filteredRepos),
@@ -84,16 +83,11 @@ export default function App() {
     [filteredRepos],
   );
 
-  // Top-level errors (user not found, rate limit, etc.)
-  // Note: contribution errors are handled inline in the heatmap card —
-  // they shouldn't blow up the whole dashboard since they're token-related,
-  // not about the user existing.
   const fatalError =
     (userQuery.error as Error | null)?.message ??
     (reposQuery.error as Error | null)?.message ??
     null;
 
-  // Detect "needs token" specifically — drives a different empty state
   const contributionsError = contributionsQuery.error as
     | (Error & { status?: number })
     | null;
@@ -113,7 +107,6 @@ export default function App() {
         {/* ───────── Loaded state ───────── */}
         {username && !fatalError && (
           <>
-            {/* Profile strip */}
             {userQuery.data && (
               <ProfileStrip
                 avatar={userQuery.data.avatar_url}
@@ -128,7 +121,7 @@ export default function App() {
               />
             )}
 
-            {/* Contribution heatmap — full width, headline visualization */}
+            {/* Contribution heatmap */}
             <section className="card p-5 sm:p-6 animate-slide-up">
               <div className="flex items-start justify-between gap-3 mb-5 flex-wrap">
                 <div>
@@ -150,7 +143,7 @@ export default function App() {
               {contributionsQuery.isLoading ? (
                 <HeatmapSkeleton />
               ) : needsToken ? (
-                <HeatmapTokenPrompt />
+                <HeatmapSignInPrompt />
               ) : contributionsError ? (
                 <p className="text-sm text-text-muted py-8 text-center font-mono">
                   Couldn't load contribution data: {contributionsError.message}
@@ -160,7 +153,6 @@ export default function App() {
               ) : null}
             </section>
 
-            {/* Metric cards */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <MetricCard
                 label="Total Repos"
@@ -188,16 +180,12 @@ export default function App() {
               />
             </div>
 
-            {/* Filters + Charts grid */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              {/* Sidebar — filters */}
               <div className="lg:col-span-1">
                 {reposQuery.data && <Filters repos={reposQuery.data} />}
               </div>
 
-              {/* Main — charts */}
               <div className="lg:col-span-2 space-y-4">
-                {/* Languages */}
                 <ChartContainer
                   title="Languages"
                   subtitle="Distribution across filtered repos"
@@ -258,7 +246,6 @@ export default function App() {
                   </div>
                 </ChartContainer>
 
-                {/* Top repos */}
                 <ChartContainer
                   title="Top repos by stars"
                   subtitle="Highest-starred repositories"
@@ -323,7 +310,6 @@ export default function App() {
                   </ResponsiveContainer>
                 </ChartContainer>
 
-                {/* Commits */}
                 <ChartContainer
                   title="Commit activity"
                   subtitle="Last 30 days, own repos only"
@@ -399,7 +385,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Repos table */}
             <ReposTable
               repos={filteredRepos}
               pageSize={10}
@@ -410,16 +395,15 @@ export default function App() {
           </>
         )}
       </main>
+
+      {/* Surfaces OAuth flow errors set by main.tsx */}
+      <AuthErrorToast />
     </div>
   );
 }
 
 /* ─────────── Heatmap support components ─────────── */
 
-/**
- * Skeleton for the heatmap while loading.
- * Matches the real heatmap's silhouette: ~7 rows tall, scrolling width.
- */
 function HeatmapSkeleton() {
   return (
     <div className="overflow-x-auto -mx-1 px-1">
@@ -452,65 +436,96 @@ function HeatmapSkeleton() {
 }
 
 /**
- * "Add a token" prompt shown when the user hasn't set one.
- * GraphQL requires a token — there's no anonymous access — so we make the
- * ask clear and easy with a single inline input.
+ * Replaces the old "paste your token here" prompt — now we just invite the
+ * user to sign in with one click.
  */
-function HeatmapTokenPrompt() {
-  const [token, setToken] = useState("");
-  const [saved, setSaved] = useState(false);
-
-  function handleSave() {
-    const trimmed = token.trim();
-    if (!trimmed) return;
-    localStorage.setItem("github_token", trimmed);
-    setSaved(true);
-    setTimeout(() => window.location.reload(), 600);
-  }
+function HeatmapSignInPrompt() {
+  const signIn = useAuthStore((s) => s.signIn);
+  const isOAuthConfigured = useAuthStore((s) => s.isOAuthConfigured);
 
   return (
-    <div className="text-center py-8 px-4 animate-fade-in">
-      <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-accent/10 ring-1 ring-accent/30 mx-auto mb-3">
-        <KeyRound className="w-5 h-5 text-accent" strokeWidth={2.25} />
+    <div className="text-center py-10 px-4 animate-fade-in">
+      <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-accent/10 ring-1 ring-accent/30 mx-auto mb-4">
+        <Activity className="w-6 h-6 text-accent" strokeWidth={2.25} />
       </div>
       <p className="text-sm text-text-primary font-medium">
-        Contribution data needs a GitHub token
+        Sign in to see contribution data
       </p>
       <p className="text-xs text-text-muted mt-1.5 max-w-md mx-auto">
-        GitHub's GraphQL API requires authentication.{" "}
-        <a
-          href="https://github.com/settings/tokens/new?description=CodeFlow&scopes="
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-accent hover:text-accent-hover underline underline-offset-2"
-        >
-          Create a free token
-        </a>{" "}
-        (no scopes needed).
+        GitHub's GraphQL API requires authentication.
+        {isOAuthConfigured ? " One click — no token to copy." : ""}
       </p>
-      <div className="mt-4 flex gap-2 max-w-sm mx-auto">
-        <input
-          type="password"
-          value={token}
-          onChange={(e) => setToken(e.target.value)}
-          placeholder="ghp_..."
-          spellCheck={false}
-          autoComplete="off"
-          className="
-            flex-1 px-3 py-2 rounded-lg
-            bg-bg-elevated border border-bg-border
-            text-sm text-text-primary placeholder:text-text-muted
-            font-mono
-            outline-none transition-all duration-200
-            focus:border-accent/50 focus:ring-2 focus:ring-accent/20
-          "
-        />
+      {isOAuthConfigured ? (
+        <button onClick={signIn} className="btn-primary text-sm mt-5">
+          <LogIn className="w-4 h-4" strokeWidth={2.25} />
+          Sign in with GitHub
+        </button>
+      ) : (
+        <p className="text-xs text-text-muted mt-4">
+          OAuth isn't configured on this deployment.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Bottom-right toast. Reads the OAuth error stashed on window by main.tsx
+ * and clears it once shown.
+ */
+function AuthErrorToast() {
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    const w = window as Window & { __codeflowAuthError?: string };
+    if (w.__codeflowAuthError) {
+      setMessage(w.__codeflowAuthError);
+      delete w.__codeflowAuthError;
+    }
+  }, []);
+
+  // Auto-dismiss after 6s
+  useEffect(() => {
+    if (!message) return;
+    const t = window.setTimeout(() => setMessage(null), 6000);
+    return () => window.clearTimeout(t);
+  }, [message]);
+
+  if (!message) return null;
+
+  return (
+    <div
+      role="alert"
+      className="
+        fixed bottom-5 right-5 z-50
+        max-w-sm
+        animate-slide-up
+      "
+    >
+      <div
+        className="
+        flex items-start gap-3
+        glass rounded-xl p-4 shadow-2xl
+        border border-red-500/20
+      "
+      >
+        <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-red-500/10 ring-1 ring-red-500/20 shrink-0">
+          <AlertCircle className="w-4 h-4 text-red-400" strokeWidth={2.25} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-text-primary">Sign-in error</p>
+          <p className="text-xs text-text-secondary mt-0.5">{message}</p>
+        </div>
         <button
-          onClick={handleSave}
-          disabled={!token.trim() || saved}
-          className="btn-primary text-sm whitespace-nowrap"
+          onClick={() => setMessage(null)}
+          aria-label="Dismiss"
+          className="
+            shrink-0 -mr-1 -mt-1 p-1 rounded-md
+            text-text-muted hover:text-text-primary
+            transition-colors duration-150
+          "
         >
-          {saved ? "Saved ✓" : "Save"}
+          <X className="w-3.5 h-3.5" />
         </button>
       </div>
     </div>
@@ -585,17 +600,12 @@ function ErrorState({ message }: { message: string }) {
   );
 }
 
+/**
+ * Rate-limit state — now invites OAuth sign-in instead of asking for a token.
+ */
 function RateLimitState() {
-  const [token, setToken] = useState("");
-  const [saved, setSaved] = useState(false);
-
-  function handleSave() {
-    const trimmed = token.trim();
-    if (!trimmed) return;
-    localStorage.setItem("github_token", trimmed);
-    setSaved(true);
-    setTimeout(() => window.location.reload(), 600);
-  }
+  const signIn = useAuthStore((s) => s.signIn);
+  const isOAuthConfigured = useAuthStore((s) => s.isOAuthConfigured);
 
   return (
     <div className="card p-8 sm:p-10 text-center animate-fade-in max-w-xl mx-auto">
@@ -606,62 +616,18 @@ function RateLimitState() {
         GitHub rate limit reached
       </h2>
       <p className="mt-2 text-sm text-text-secondary leading-relaxed max-w-md mx-auto">
-        GitHub allows 60 unauthenticated requests per hour. Add a free personal
-        access token to bump that to 5,000/hr.
+        GitHub allows 60 unauthenticated requests per hour.
+        {isOAuthConfigured
+          ? " Sign in to bump that to 5,000/hr — your own quota, your own data."
+          : " OAuth isn't configured on this deployment. Try again in an hour."}
       </p>
 
-      <ol className="mt-6 text-left text-sm text-text-secondary space-y-2 max-w-md mx-auto font-mono">
-        <li>
-          <span className="text-accent">1.</span> Open{" "}
-          <a
-            href="https://github.com/settings/tokens/new?description=CodeFlow&scopes="
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-accent hover:text-accent-hover underline underline-offset-2"
-          >
-            github.com/settings/tokens/new
-          </a>
-        </li>
-        <li>
-          <span className="text-accent">2.</span> Click{" "}
-          <span className="text-text-primary">Generate token</span> — no scopes
-          needed
-        </li>
-        <li>
-          <span className="text-accent">3.</span> Paste it below
-        </li>
-      </ol>
-
-      <div className="mt-6 flex gap-2 max-w-md mx-auto">
-        <input
-          type="password"
-          value={token}
-          onChange={(e) => setToken(e.target.value)}
-          placeholder="ghp_..."
-          spellCheck={false}
-          autoComplete="off"
-          className="
-            flex-1 px-3 py-2 rounded-lg
-            bg-bg-elevated border border-bg-border
-            text-sm text-text-primary placeholder:text-text-muted
-            font-mono
-            outline-none transition-all duration-200
-            focus:border-accent/50 focus:ring-2 focus:ring-accent/20
-          "
-        />
-        <button
-          onClick={handleSave}
-          disabled={!token.trim() || saved}
-          className="btn-primary text-sm whitespace-nowrap"
-        >
-          {saved ? "Saved ✓" : "Save & retry"}
+      {isOAuthConfigured && (
+        <button onClick={signIn} className="btn-primary text-sm mt-6">
+          <LogIn className="w-4 h-4" strokeWidth={2.25} />
+          Sign in with GitHub
         </button>
-      </div>
-
-      <p className="mt-4 text-xs text-text-muted max-w-md mx-auto">
-        Your token stays in your browser's localStorage. It's only sent to
-        api.github.com.
-      </p>
+      )}
     </div>
   );
 }
@@ -766,12 +732,10 @@ function ProfileStrip({
 function Footer() {
   return (
     <footer className="pt-8 pb-4 text-center text-xs font-mono text-text-muted">
-      Data from the public GitHub API · No login, no tracking
+      Data from the public GitHub API · No tracking
     </footer>
   );
 }
-
-/* ─────────── Custom chart tooltips ─────────── */
 
 interface TooltipPayload {
   name?: string;

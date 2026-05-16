@@ -3,17 +3,11 @@
  *
  * Flow:
  * 1. User clicks "Sign in with GitHub" in our app
- * 2. We redirect them to github.com/login/oauth/authorize?client_id=...&state=...
- * 3. They approve → GitHub redirects them back to:
- *    https://our-app.vercel.app/api/auth/callback?code=XYZ&state=ABC
- * 4. THIS FUNCTION runs. It uses our CLIENT_SECRET (server-side only) to
- *    exchange the temporary `code` for a real access token.
- * 5. We redirect the user back to the app with the token in the URL hash
- *    (hashes are not sent to servers, so the token never leaves the browser
- *    after this point).
- *
- * The CSRF `state` check happens on the client side because that's where
- * the original state was generated. We forward it back unchanged.
+ * 2. We redirect them to github.com/login/oauth/authorize?...&state=encoded
+ * 3. They approve → GitHub redirects to /api/auth/callback?code=XYZ&state=encoded
+ * 4. We exchange the code for a token using our CLIENT_SECRET (server-only)
+ * 5. We redirect to /#access_token=...&state=encoded
+ *    (state forwarded unchanged — frontend decodes it for nonce + return-to)
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
@@ -27,14 +21,12 @@ interface GitHubTokenResponse {
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // Only GET — this endpoint is hit via redirect, not POST
   if (req.method !== "GET") {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
   const { code, state, error: oauthError } = req.query;
 
-  // GitHub passes ?error= when the user denies permission
   if (oauthError) {
     return res.redirect(
       302,
@@ -55,9 +47,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    // Exchange the temporary code for a real access token.
-    // This is the ONE call where we need our client secret — it never leaves
-    // this serverless function.
     const tokenRes = await fetch(
       "https://github.com/login/oauth/access_token",
       {
@@ -93,18 +82,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       );
     }
 
-    /**
-     * Redirect back to the app with the token in the URL hash (#).
-     *
-     * Why hash instead of query string:
-     * - Hashes are NOT sent to servers, only the browser sees them
-     * - Server logs / proxies / referrer headers won't capture the token
-     * - The frontend reads it via window.location.hash and immediately
-     *   strips it from the URL with history.replaceState
-     *
-     * `state` is forwarded so the frontend can verify it matches what it
-     * originally generated (CSRF protection).
-     */
+    // Forward state UNCHANGED — frontend decodes it for nonce + return-to
     const params = new URLSearchParams({
       access_token: data.access_token,
       state,

@@ -9,10 +9,10 @@ import {
   type GitHubCommit,
   type ContributionCalendar,
 } from "./schemas";
+import { getStoredToken } from "./oauth";
 
 /**
  * Custom error class — gives us structured info instead of cryptic axios errors.
- * Components can switch on `status` to show different UI (404 → "user not found", etc.).
  */
 export class GitHubAPIError extends Error {
   status?: number;
@@ -24,18 +24,6 @@ export class GitHubAPIError extends Error {
     this.status = status;
     this.rateLimitRemaining = rateLimitRemaining;
   }
-}
-
-/**
- * Reads the optional GitHub token from localStorage.
- * No token → 60 requests/hour. With token → 5000/hour.
- * Set in browser console: localStorage.setItem('github_token', 'ghp_...')
- *
- * Note: the GraphQL endpoint REQUIRES a token — there's no anonymous access.
- * The contributions feature gracefully shows a "needs token" empty state if missing.
- */
-function getToken(): string | null {
-  return localStorage.getItem("github_token");
 }
 
 /**
@@ -51,7 +39,7 @@ const client = axios.create({
 });
 
 client.interceptors.request.use((config) => {
-  const token = getToken();
+  const token = getStoredToken();
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
@@ -60,27 +48,55 @@ client.interceptors.request.use((config) => {
 
 /**
  * Translates raw axios errors into our typed GitHubAPIError.
+ *
+ * Detecting rate limits is tricky because:
+ * - Anonymous requests sometimes don't include x-ratelimit-remaining at all
+ * - The header value isn't always 0 even when GitHub is throttling
+ * - GitHub puts the actual reason in the response body's `message` field
+ *
+ * So we check both the header AND the body message for rate-limit indicators.
  */
 function handleError(error: unknown): never {
   if (error instanceof AxiosError) {
     const status = error.response?.status;
-    const remaining = Number(error.response?.headers["x-ratelimit-remaining"]);
+    const remainingRaw = error.response?.headers["x-ratelimit-remaining"];
+    const remaining =
+      remainingRaw !== undefined ? Number(remainingRaw) : undefined;
+    const bodyMessage =
+      (error.response?.data as { message?: string } | undefined)?.message ?? "";
 
     if (status === 404) {
       throw new GitHubAPIError("User not found", 404);
     }
-    if (status === 403 && remaining === 0) {
+
+    if (status === 403) {
+      // Rate limit: either the header says 0, or GitHub's message tells us
+      const isRateLimit =
+        remaining === 0 ||
+        /rate limit/i.test(bodyMessage) ||
+        /api rate limit/i.test(bodyMessage);
+
+      if (isRateLimit) {
+        throw new GitHubAPIError(
+          "Rate limit exceeded. Sign in with GitHub to increase your limit.",
+          403,
+          0,
+        );
+      }
+      // Some other 403 (abuse detection, secondary limit, permissions)
       throw new GitHubAPIError(
-        "Rate limit exceeded. Add a GitHub token to increase your limit.",
+        bodyMessage || "Access forbidden",
         403,
-        0,
+        remaining,
       );
     }
+
     if (status === 401) {
-      throw new GitHubAPIError("Invalid GitHub token", 401);
+      throw new GitHubAPIError("Invalid or expired GitHub token", 401);
     }
+
     throw new GitHubAPIError(
-      error.message || "Request failed",
+      bodyMessage || error.message || "Request failed",
       status,
       remaining,
     );
@@ -116,6 +132,10 @@ export async function fetchRepos(username: string): Promise<GitHubRepo[]> {
 
 /**
  * Fetch recent commits for a single repo.
+ *
+ * Returns [] for any "expected" failure — empty repo (409), abuse detection
+ * (403 with remaining), repo gone (404). We don't want one bad repo polluting
+ * the console for the user; just skip it silently and move on.
  */
 export async function fetchRepoCommits(
   owner: string,
@@ -128,15 +148,68 @@ export async function fetchRepoCommits(
     });
     return GitHubCommitsSchema.parse(data);
   } catch (err) {
-    if (err instanceof AxiosError && err.response?.status === 409) {
-      return [];
+    if (err instanceof AxiosError) {
+      const status = err.response?.status;
+      // Empty repo, gone, or abuse-detection backoff → skip silently
+      if (
+        status === 409 ||
+        status === 404 ||
+        status === 403 ||
+        status === 429
+      ) {
+        return [];
+      }
     }
     handleError(err);
   }
 }
 
 /**
- * Fetch commits across ALL of a user's repos in parallel.
+ * Run an array of async tasks with controlled concurrency.
+ *
+ * Why we need this: firing 80 parallel requests at GitHub triggers their
+ * secondary rate limiter and most fail. 5 at a time keeps us well under
+ * any abuse threshold while still being plenty fast.
+ *
+ * This is a tiny custom helper — pulling in p-limit or similar would be
+ * overkill for one usage site.
+ */
+async function runWithConcurrency<T>(
+  tasks: (() => Promise<T>)[],
+  concurrency: number,
+): Promise<PromiseSettledResult<T>[]> {
+  const results: PromiseSettledResult<T>[] = new Array(tasks.length);
+  let cursor = 0;
+
+  async function worker() {
+    while (cursor < tasks.length) {
+      const i = cursor++;
+      try {
+        const value = await tasks[i]();
+        results[i] = { status: "fulfilled", value };
+      } catch (reason) {
+        results[i] = { status: "rejected", reason };
+      }
+    }
+  }
+
+  // Spawn N workers that pull tasks off the shared cursor
+  const workers = Array.from(
+    { length: Math.min(concurrency, tasks.length) },
+    worker,
+  );
+  await Promise.all(workers);
+  return results;
+}
+
+/**
+ * Fetch commits across the user's most recently active repos.
+ *
+ * Two key throttles vs. naive Promise.allSettled:
+ * - Cap repo count at 30 (sorted by recency from fetchRepos). Beyond that,
+ *   commits are unlikely to fall in the last 30 days anyway.
+ * - Run with concurrency=5 instead of all-at-once. Avoids GitHub's
+ *   secondary rate limit (the 403 storm).
  */
 export async function fetchAllRecentCommits(
   username: string,
@@ -146,11 +219,15 @@ export async function fetchAllRecentCommits(
   const since = new Date();
   since.setDate(since.getDate() - daysBack);
 
-  const ownRepos = repos.filter((r) => !r.fork);
+  // Skip forks, then keep only the 30 most-recently-updated. Repos already
+  // come back sorted by `updated` from fetchRepos, so slice() is enough.
+  const ownRepos = repos.filter((r) => !r.fork).slice(0, 30);
 
-  const results = await Promise.allSettled(
-    ownRepos.map((repo) => fetchRepoCommits(username, repo.name, since)),
+  const tasks = ownRepos.map(
+    (repo) => () => fetchRepoCommits(username, repo.name, since),
   );
+
+  const results = await runWithConcurrency(tasks, 5);
 
   return results
     .filter(
@@ -162,11 +239,6 @@ export async function fetchAllRecentCommits(
 
 /* ───────────── GraphQL: contribution calendar ───────────── */
 
-/**
- * The GraphQL query — kept as a plain string.
- * GitHub's contributionsCollection returns the calendar grouped by week,
- * which is convenient for rendering (each week = one column in the heatmap).
- */
 const CONTRIBUTIONS_QUERY = `
   query ($username: String!) {
     user(login: $username) {
@@ -189,22 +261,14 @@ const CONTRIBUTIONS_QUERY = `
 /**
  * Fetch the contribution calendar via GraphQL.
  *
- * Why GraphQL: the contribution graph data isn't exposed on the REST API.
- * Why this is the only GraphQL call in CodeFlow: every other endpoint we use
- * is cleaner via REST. Mixing styles only because the data demands it.
- *
- * Auth: REQUIRES a token — GraphQL has no anonymous access. We surface that
- * with a typed error so the UI can show a clear "add token" prompt.
+ * Auth: REQUIRES a token — GraphQL has no anonymous access.
  */
 export async function fetchContributions(
   username: string,
 ): Promise<ContributionCalendar> {
-  const token = getToken();
+  const token = getStoredToken();
   if (!token) {
-    throw new GitHubAPIError(
-      "GitHub token required for contribution data",
-      401,
-    );
+    throw new GitHubAPIError("Sign in to see contribution data", 401);
   }
 
   try {
@@ -225,7 +289,6 @@ export async function fetchContributions(
 
     const parsed = ContributionsResponseSchema.parse(data);
 
-    // GraphQL puts errors in the body, not in HTTP status — handle them here
     if (parsed.errors?.length) {
       throw new GitHubAPIError(parsed.errors[0].message, 400);
     }

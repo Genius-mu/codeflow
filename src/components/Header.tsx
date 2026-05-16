@@ -2,6 +2,7 @@ import { useState, useEffect, type FormEvent } from "react";
 import { Search, Code2, Loader2, Sun, Moon } from "lucide-react";
 import { useAppStore } from "../lib/store";
 import { useThemeStore } from "../lib/theme";
+import { AuthControls } from "./AuthControls";
 
 interface HeaderProps {
   isLoading?: boolean;
@@ -13,11 +14,8 @@ export function Header({ isLoading = false }: HeaderProps) {
   const theme = useThemeStore((s) => s.theme);
   const toggleTheme = useThemeStore((s) => s.toggleTheme);
 
-  // Local input state — separated from the store so typing doesn't trigger
-  // a fetch on every keystroke. We only commit to the store on submit.
   const [input, setInput] = useState(username);
 
-  // Keep local input in sync if username changes from elsewhere (e.g. URL nav)
   useEffect(() => {
     setInput(username);
   }, [username]);
@@ -32,7 +30,7 @@ export function Header({ isLoading = false }: HeaderProps) {
   return (
     <header className="sticky top-0 z-30 glass">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="flex h-16 items-center justify-between gap-3 sm:gap-4">
+        <div className="flex h-16 items-center justify-between gap-2 sm:gap-3">
           {/* Brand */}
           <div className="flex items-center gap-2.5 shrink-0">
             <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-accent/10 ring-1 ring-accent/30">
@@ -101,50 +99,53 @@ export function Header({ isLoading = false }: HeaderProps) {
             </div>
           </form>
 
-          {/* Theme toggle */}
-          <button
-            type="button"
-            onClick={toggleTheme}
-            aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
-            className="
-              relative shrink-0
-              w-9 h-9 rounded-lg
-              flex items-center justify-center
-              bg-bg-surface border border-bg-border text-text-secondary
-              transition-all duration-200
-              hover:text-accent hover:border-accent/40 hover:bg-accent/5
-              active:scale-90
-              focus:outline-none focus:ring-2 focus:ring-accent/40
-              overflow-hidden
-            "
-          >
-            {/* Sun — visible in dark mode (so user knows clicking goes light) */}
-            <Sun
-              className={`
-                absolute w-4 h-4
-                transition-all duration-300 ease-out
-                ${
-                  theme === "dark"
-                    ? "opacity-100 rotate-0 scale-100"
-                    : "opacity-0 rotate-90 scale-50"
-                }
-              `}
-              strokeWidth={2.25}
-            />
-            {/* Moon — visible in light mode */}
-            <Moon
-              className={`
-                absolute w-4 h-4
-                transition-all duration-300 ease-out
-                ${
-                  theme === "light"
-                    ? "opacity-100 rotate-0 scale-100"
-                    : "opacity-0 -rotate-90 scale-50"
-                }
-              `}
-              strokeWidth={2.25}
-            />
-          </button>
+          {/* Right cluster: auth + theme */}
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <AuthControls />
+
+            {/* Theme toggle */}
+            <button
+              type="button"
+              onClick={toggleTheme}
+              aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+              className="
+                relative shrink-0
+                w-9 h-9 rounded-lg
+                flex items-center justify-center
+                bg-bg-surface border border-bg-border text-text-secondary
+                transition-all duration-200
+                hover:text-accent hover:border-accent/40 hover:bg-accent/5
+                active:scale-90
+                focus:outline-none focus:ring-2 focus:ring-accent/40
+                overflow-hidden
+              "
+            >
+              <Sun
+                className={`
+                  absolute w-4 h-4
+                  transition-all duration-300 ease-out
+                  ${
+                    theme === "dark"
+                      ? "opacity-100 rotate-0 scale-100"
+                      : "opacity-0 rotate-90 scale-50"
+                  }
+                `}
+                strokeWidth={2.25}
+              />
+              <Moon
+                className={`
+                  absolute w-4 h-4
+                  transition-all duration-300 ease-out
+                  ${
+                    theme === "light"
+                      ? "opacity-100 rotate-0 scale-100"
+                      : "opacity-0 -rotate-90 scale-50"
+                  }
+                `}
+                strokeWidth={2.25}
+              />
+            </button>
+          </div>
         </div>
       </div>
     </header>

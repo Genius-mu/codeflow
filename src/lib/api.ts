@@ -2,11 +2,9 @@ import axios, { AxiosError } from "axios";
 import {
   GitHubUserSchema,
   GitHubReposSchema,
-  GitHubCommitsSchema,
   ContributionsResponseSchema,
   type GitHubUser,
   type GitHubRepo,
-  type GitHubCommit,
   type ContributionCalendar,
 } from "./schemas";
 import { getStoredToken } from "./oauth";
@@ -53,8 +51,6 @@ client.interceptors.request.use((config) => {
  * - Anonymous requests sometimes don't include x-ratelimit-remaining at all
  * - The header value isn't always 0 even when GitHub is throttling
  * - GitHub puts the actual reason in the response body's `message` field
- *
- * So we check both the header AND the body message for rate-limit indicators.
  */
 function handleError(error: unknown): never {
   if (error instanceof AxiosError) {
@@ -70,7 +66,6 @@ function handleError(error: unknown): never {
     }
 
     if (status === 403) {
-      // Rate limit: either the header says 0, or GitHub's message tells us
       const isRateLimit =
         remaining === 0 ||
         /rate limit/i.test(bodyMessage) ||
@@ -83,7 +78,6 @@ function handleError(error: unknown): never {
           0,
         );
       }
-      // Some other 403 (abuse detection, secondary limit, permissions)
       throw new GitHubAPIError(
         bodyMessage || "Access forbidden",
         403,
@@ -130,113 +124,6 @@ export async function fetchRepos(username: string): Promise<GitHubRepo[]> {
   }
 }
 
-/**
- * Fetch recent commits for a single repo.
- *
- * Returns [] for any "expected" failure — empty repo (409), abuse detection
- * (403 with remaining), repo gone (404). We don't want one bad repo polluting
- * the console for the user; just skip it silently and move on.
- */
-export async function fetchRepoCommits(
-  owner: string,
-  repo: string,
-  since: Date,
-): Promise<GitHubCommit[]> {
-  try {
-    const { data } = await client.get(`/repos/${owner}/${repo}/commits`, {
-      params: { since: since.toISOString(), per_page: 100 },
-    });
-    return GitHubCommitsSchema.parse(data);
-  } catch (err) {
-    if (err instanceof AxiosError) {
-      const status = err.response?.status;
-      // Empty repo, gone, or abuse-detection backoff → skip silently
-      if (
-        status === 409 ||
-        status === 404 ||
-        status === 403 ||
-        status === 429
-      ) {
-        return [];
-      }
-    }
-    handleError(err);
-  }
-}
-
-/**
- * Run an array of async tasks with controlled concurrency.
- *
- * Why we need this: firing 80 parallel requests at GitHub triggers their
- * secondary rate limiter and most fail. 5 at a time keeps us well under
- * any abuse threshold while still being plenty fast.
- *
- * This is a tiny custom helper — pulling in p-limit or similar would be
- * overkill for one usage site.
- */
-async function runWithConcurrency<T>(
-  tasks: (() => Promise<T>)[],
-  concurrency: number,
-): Promise<PromiseSettledResult<T>[]> {
-  const results: PromiseSettledResult<T>[] = new Array(tasks.length);
-  let cursor = 0;
-
-  async function worker() {
-    while (cursor < tasks.length) {
-      const i = cursor++;
-      try {
-        const value = await tasks[i]();
-        results[i] = { status: "fulfilled", value };
-      } catch (reason) {
-        results[i] = { status: "rejected", reason };
-      }
-    }
-  }
-
-  // Spawn N workers that pull tasks off the shared cursor
-  const workers = Array.from(
-    { length: Math.min(concurrency, tasks.length) },
-    worker,
-  );
-  await Promise.all(workers);
-  return results;
-}
-
-/**
- * Fetch commits across the user's most recently active repos.
- *
- * Two key throttles vs. naive Promise.allSettled:
- * - Cap repo count at 30 (sorted by recency from fetchRepos). Beyond that,
- *   commits are unlikely to fall in the last 30 days anyway.
- * - Run with concurrency=5 instead of all-at-once. Avoids GitHub's
- *   secondary rate limit (the 403 storm).
- */
-export async function fetchAllRecentCommits(
-  username: string,
-  repos: GitHubRepo[],
-  daysBack: number = 30,
-): Promise<GitHubCommit[]> {
-  const since = new Date();
-  since.setDate(since.getDate() - daysBack);
-
-  // Skip forks, then keep only the 30 most-recently-updated. Repos already
-  // come back sorted by `updated` from fetchRepos, so slice() is enough.
-  const ownRepos = repos.filter((r) => !r.fork).slice(0, 30);
-
-  const tasks = ownRepos.map(
-    (repo) => () => fetchRepoCommits(username, repo.name, since),
-  );
-
-  const results = await runWithConcurrency(tasks, 5);
-
-  return results
-    .filter(
-      (r): r is PromiseFulfilledResult<GitHubCommit[]> =>
-        r.status === "fulfilled",
-    )
-    .flatMap((r) => r.value);
-}
-
 /* ───────────── GraphQL: contribution calendar ───────────── */
 
 const CONTRIBUTIONS_QUERY = `
@@ -260,6 +147,10 @@ const CONTRIBUTIONS_QUERY = `
 
 /**
  * Fetch the contribution calendar via GraphQL.
+ *
+ * This single request returns daily contribution counts for the entire last
+ * year — feeds BOTH the heatmap AND the 30-day commit chart in `utils.ts`.
+ * No more per-repo commit fetching. One request, all the data.
  *
  * Auth: REQUIRES a token — GraphQL has no anonymous access.
  */

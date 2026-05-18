@@ -35,7 +35,7 @@ import { Filters } from "./components/Filters";
 import { ReposTable } from "./components/ReposTable";
 import { Heatmap } from "./components/Heatmap";
 
-import { useUser, useRepos, useCommits, useContributions } from "./lib/hooks";
+import { useUser, useRepos, useContributions } from "./lib/hooks";
 import { useAppStore } from "./lib/store";
 import { useAuthStore } from "./lib/auth";
 import {
@@ -48,18 +48,6 @@ import {
   CHART_COLORS,
 } from "./lib/utils";
 
-/**
- * Shared Recharts tooltip styles.
- *
- * `isAnimationActive={false}` is the key fix for "tooltip starts at wrong
- * position then transitions" — Recharts defaults to animating tooltip
- * position, which on first hover means it slides in from the chart's
- * top-left corner. Disabling animation makes the tooltip appear instantly
- * at the cursor.
- *
- * `wrapperStyle.outline: 'none'` removes the default focus ring that
- * Recharts adds to the tooltip wrapper.
- */
 const TOOLTIP_PROPS = {
   isAnimationActive: false,
   wrapperStyle: { outline: "none" },
@@ -69,16 +57,14 @@ export default function App() {
   const username = useAppStore((s) => s.username);
   const filters = useAppStore((s) => s.filters);
 
-  // Data layer
+  // Data layer — three queries total now, not 30+
   const userQuery = useUser(username);
   const reposQuery = useRepos(username);
-  const commitsQuery = useCommits(username, reposQuery.data, 30);
   const contributionsQuery = useContributions(username);
 
   const isLoading =
     userQuery.isLoading ||
     reposQuery.isLoading ||
-    commitsQuery.isFetching ||
     contributionsQuery.isFetching;
 
   const filteredRepos = useMemo(
@@ -91,10 +77,13 @@ export default function App() {
     () => groupReposByLanguage(filteredRepos),
     [filteredRepos],
   );
+
+  // Commit timeline is now derived from the contribution calendar
   const commitTimeline = useMemo(
-    () => buildCommitTimeline(commitsQuery.data ?? [], 30),
-    [commitsQuery.data],
+    () => buildCommitTimeline(contributionsQuery.data, 30),
+    [contributionsQuery.data],
   );
+
   const topRepos = useMemo(
     () => getTopReposByStars(filteredRepos, 8),
     [filteredRepos],
@@ -115,13 +104,9 @@ export default function App() {
       <Header isLoading={isLoading} />
 
       <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-        {/* ───────── Initial state — no search yet ───────── */}
         {!username && <WelcomeState />}
-
-        {/* ───────── Fatal error ───────── */}
         {username && fatalError && <ErrorState message={fatalError} />}
 
-        {/* ───────── Loaded state ───────── */}
         {username && !fatalError && (
           <>
             {userQuery.data && (
@@ -138,7 +123,6 @@ export default function App() {
               />
             )}
 
-            {/* Contribution heatmap */}
             <section className="card p-5 sm:p-6 animate-slide-up">
               <div className="flex items-start justify-between gap-3 mb-5 flex-wrap">
                 <div>
@@ -332,14 +316,14 @@ export default function App() {
                 </ChartContainer>
 
                 <ChartContainer
-                  title="Commit activity"
-                  subtitle="Last 30 days, own repos only"
-                  loading={commitsQuery.isLoading || commitsQuery.isFetching}
+                  title="Activity (last 30 days)"
+                  subtitle="Daily contributions across all repos"
+                  loading={contributionsQuery.isLoading}
                   isEmpty={
-                    !commitsQuery.isLoading &&
+                    !contributionsQuery.isLoading &&
                     commitTimeline.every((d) => d.commits === 0)
                   }
-                  emptyMessage="No commits in the last 30 days"
+                  emptyMessage="No activity in the last 30 days"
                   skeletonType="line"
                 >
                   <ResponsiveContainer width="100%" height={280}>
@@ -419,7 +403,6 @@ export default function App() {
         )}
       </main>
 
-      {/* Surfaces OAuth flow errors set by main.tsx */}
       <AuthErrorToast />
     </div>
   );
@@ -436,17 +419,10 @@ function HeatmapSkeleton() {
             {Array.from({ length: 7 }).map((_, d) => (
               <div
                 key={d}
-                className="
-                  w-[11px] h-[11px] rounded-[2px]
-                  bg-bg-elevated relative overflow-hidden
-                "
+                className="w-[11px] h-[11px] rounded-[2px] bg-bg-elevated relative overflow-hidden"
               >
                 <div
-                  className="
-                    absolute inset-0 -translate-x-full animate-shimmer
-                    bg-gradient-to-r from-transparent via-bg-border to-transparent
-                    bg-[length:1000px_100%]
-                  "
+                  className="absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-bg-border to-transparent bg-[length:1000px_100%]"
                   style={{ animationDelay: `${(w * 7 + d) * 8}ms` }}
                 />
               </div>
@@ -458,10 +434,6 @@ function HeatmapSkeleton() {
   );
 }
 
-/**
- * Replaces the old "paste your token here" prompt — now we just invite the
- * user to sign in with one click.
- */
 function HeatmapSignInPrompt() {
   const signIn = useAuthStore((s) => s.signIn);
   const isOAuthConfigured = useAuthStore((s) => s.isOAuthConfigured);
@@ -492,10 +464,6 @@ function HeatmapSignInPrompt() {
   );
 }
 
-/**
- * Bottom-right toast. Reads the OAuth error stashed on window by main.tsx
- * and clears it once shown.
- */
 function AuthErrorToast() {
   const [message, setMessage] = useState<string | null>(null);
 
@@ -507,7 +475,6 @@ function AuthErrorToast() {
     }
   }, []);
 
-  // Auto-dismiss after 6s
   useEffect(() => {
     if (!message) return;
     const t = window.setTimeout(() => setMessage(null), 6000);
@@ -519,19 +486,9 @@ function AuthErrorToast() {
   return (
     <div
       role="alert"
-      className="
-        fixed bottom-5 right-5 z-50
-        max-w-sm
-        animate-slide-up
-      "
+      className="fixed bottom-5 right-5 z-50 max-w-sm animate-slide-up"
     >
-      <div
-        className="
-        flex items-start gap-3
-        glass rounded-xl p-4 shadow-2xl
-        border border-red-500/20
-      "
-      >
+      <div className="flex items-start gap-3 glass rounded-xl p-4 shadow-2xl border border-red-500/20">
         <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-red-500/10 ring-1 ring-red-500/20 shrink-0">
           <AlertCircle className="w-4 h-4 text-red-400" strokeWidth={2.25} />
         </div>
@@ -542,11 +499,7 @@ function AuthErrorToast() {
         <button
           onClick={() => setMessage(null)}
           aria-label="Dismiss"
-          className="
-            shrink-0 -mr-1 -mt-1 p-1 rounded-md
-            text-text-muted hover:text-text-primary
-            transition-colors duration-150
-          "
+          className="shrink-0 -mr-1 -mt-1 p-1 rounded-md text-text-muted hover:text-text-primary transition-colors duration-150"
         >
           <X className="w-3.5 h-3.5" />
         </button>
@@ -554,8 +507,6 @@ function AuthErrorToast() {
     </div>
   );
 }
-
-/* ─────────── Sub-components for readability ─────────── */
 
 function WelcomeState() {
   return (
@@ -592,14 +543,7 @@ function Suggestion({ username }: { username: string }) {
   return (
     <button
       onClick={() => setUsername(username)}
-      className="
-        px-2.5 py-1 rounded-md
-        bg-bg-surface border border-bg-border
-        text-text-secondary
-        transition-all duration-200
-        hover:text-accent hover:border-accent/40
-        active:scale-95
-      "
+      className="px-2.5 py-1 rounded-md bg-bg-surface border border-bg-border text-text-secondary transition-all duration-200 hover:text-accent hover:border-accent/40 active:scale-95"
     >
       {username}
     </button>
@@ -623,9 +567,6 @@ function ErrorState({ message }: { message: string }) {
   );
 }
 
-/**
- * Rate-limit state — now invites OAuth sign-in instead of asking for a token.
- */
 function RateLimitState() {
   const signIn = useAuthStore((s) => s.signIn);
   const isOAuthConfigured = useAuthStore((s) => s.isOAuthConfigured);
@@ -684,12 +625,7 @@ function ProfileStrip({
         <img
           src={avatar}
           alt={`${login}'s avatar`}
-          className="
-            w-20 h-20 sm:w-24 sm:h-24 rounded-2xl
-            ring-2 ring-bg-border
-            transition-all duration-300
-            hover:ring-accent/40 hover:scale-105
-          "
+          className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl ring-2 ring-bg-border transition-all duration-300 hover:ring-accent/40 hover:scale-105"
           loading="lazy"
         />
         <div className="flex-1 min-w-0">
@@ -735,11 +671,7 @@ function ProfileStrip({
                 href={blog.startsWith("http") ? blog : `https://${blog}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="
-                  flex items-center gap-1.5
-                  text-accent hover:text-accent-hover
-                  transition-colors
-                "
+                className="flex items-center gap-1.5 text-accent hover:text-accent-hover transition-colors"
               >
                 <LinkIcon className="w-3.5 h-3.5" />
                 {blog.replace(/^https?:\/\//, "")}
@@ -806,7 +738,7 @@ function CustomLineTooltip({
     <div className="glass rounded-lg px-3 py-2 text-xs shadow-xl">
       <div className="font-mono text-text-muted">{d.payload?.label}</div>
       <div className="font-mono text-accent tabular-nums font-semibold">
-        {d.value} commit{d.value === 1 ? "" : "s"}
+        {d.value} contribution{d.value === 1 ? "" : "s"}
       </div>
     </div>
   );

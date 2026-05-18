@@ -1,11 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import {
-  fetchUser,
-  fetchRepos,
-  fetchAllRecentCommits,
-  fetchContributions,
-} from "./api";
-import type { GitHubRepo } from "./schemas";
+import { fetchUser, fetchRepos, fetchContributions } from "./api";
 
 /**
  * React Query cache key prefixes.
@@ -13,8 +7,6 @@ import type { GitHubRepo } from "./schemas";
 export const queryKeys = {
   user: (username: string) => ["user", username] as const,
   repos: (username: string) => ["repos", username] as const,
-  commits: (username: string, daysBack: number) =>
-    ["commits", username, daysBack] as const,
   contributions: (username: string) => ["contributions", username] as const,
 };
 
@@ -48,27 +40,14 @@ export function useRepos(username: string) {
   });
 }
 
-export function useCommits(
-  username: string,
-  repos: GitHubRepo[] | undefined,
-  daysBack: number = 30,
-) {
-  return useQuery({
-    queryKey: queryKeys.commits(username, daysBack),
-    queryFn: () => fetchAllRecentCommits(username, repos ?? [], daysBack),
-    enabled: username.length > 0 && Array.isArray(repos) && repos.length > 0,
-    staleTime: FIVE_MINUTES,
-    retry: 1,
-  });
-}
-
 /**
  * Fetch the contribution calendar.
  *
- * staleTime is longest of all queries (15 min) — contribution data updates
- * relatively slowly (once per push event), so we cache aggressively.
+ * Powers BOTH the heatmap and the 30-day commit chart — one request, both
+ * visualizations. Massive reduction in API usage vs. fetching commits per-repo.
  *
- * No retries on auth errors (401) — without a token, retrying just spams the API.
+ * staleTime is longest of all queries (15 min) — contribution data updates
+ * relatively slowly, so we cache aggressively.
  */
 export function useContributions(username: string) {
   return useQuery({

@@ -1,4 +1,4 @@
-import type { GitHubRepo, GitHubCommit } from "./schemas";
+import type { GitHubRepo, ContributionCalendar } from "./schemas";
 import type { Filters } from "./store";
 
 /**
@@ -13,13 +13,9 @@ export function filterRepos(
   filters: Filters,
 ): GitHubRepo[] {
   return repos.filter((repo) => {
-    // Cheapest check: boolean
     if (!filters.includeForks && repo.fork) return false;
-
-    // Number comparison
     if (repo.stargazers_count < filters.minStars) return false;
 
-    // Array lookup — only if a language filter is set
     if (filters.languages.length > 0) {
       if (!repo.language) return false;
       if (!filters.languages.includes(repo.language)) return false;
@@ -29,12 +25,6 @@ export function filterRepos(
   });
 }
 
-/**
- * Group repos by programming language for the pie/donut chart.
- * Returns sorted descending so the largest slice is first.
- *
- * Repos with no language (rare — mostly README-only) are bucketed as "Other".
- */
 export interface LanguageDatum {
   name: string;
   value: number;
@@ -61,28 +51,33 @@ export function groupReposByLanguage(repos: GitHubRepo[]): LanguageDatum[] {
 }
 
 /**
- * Build a daily commit timeline for the line chart.
- * Returns ONE entry per day in the range, even days with zero commits —
- * otherwise the line chart skips days and looks misleading.
+ * Build a daily activity timeline from the contribution calendar.
+ *
+ * The calendar already gives us daily contribution counts — we just need to
+ * filter to the last N days and reshape for Recharts.
+ *
+ * Returns one entry per day in the range, including zero-activity days,
+ * so the line chart is continuous.
  */
 export interface CommitDatum {
-  date: string; // YYYY-MM-DD — sorts naturally as a string
-  label: string; // "Mar 14" — what we render on the axis
+  date: string;
+  label: string;
   commits: number;
 }
 
 export function buildCommitTimeline(
-  commits: GitHubCommit[],
+  calendar: ContributionCalendar | undefined,
   daysBack: number = 30,
 ): CommitDatum[] {
-  // Tally commits by day
-  const counts = new Map<string, number>();
-  for (const commit of commits) {
-    const date = commit.commit.author.date.slice(0, 10); // "2026-04-25"
-    counts.set(date, (counts.get(date) ?? 0) + 1);
-  }
+  if (!calendar) return [];
 
-  // Emit every day in the window — including zeros — so the chart is continuous
+  // Flatten weeks → days
+  const allDays = calendar.weeks.flatMap((w) => w.contributionDays);
+
+  // Index by date for O(1) lookup
+  const byDate = new Map(allDays.map((d) => [d.date, d.contributionCount]));
+
+  // Emit every day in the window, in chronological order
   const timeline: CommitDatum[] = [];
   const today = new Date();
   for (let i = daysBack - 1; i >= 0; i--) {
@@ -92,16 +87,12 @@ export function buildCommitTimeline(
     timeline.push({
       date: iso,
       label: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-      commits: counts.get(iso) ?? 0,
+      commits: byDate.get(iso) ?? 0,
     });
   }
   return timeline;
 }
 
-/**
- * Top N repos by star count — for the bar chart.
- * Trims long names so they fit on the chart axis.
- */
 export interface TopRepoDatum {
   name: string;
   fullName: string;
@@ -124,10 +115,6 @@ export function getTopReposByStars(
     }));
 }
 
-/**
- * Summary metrics for the top stat cards.
- * Computed once per render of the dashboard — no need to memoize for this scale.
- */
 export interface Metrics {
   totalRepos: number;
   totalStars: number;
@@ -156,10 +143,6 @@ export function computeMetrics(repos: GitHubRepo[]): Metrics {
   };
 }
 
-/**
- * Get the unique list of languages across all repos — feeds the language filter dropdown.
- * Sorted alphabetically for predictable UI.
- */
 export function getUniqueLanguages(repos: GitHubRepo[]): string[] {
   const set = new Set<string>();
   for (const repo of repos) {
@@ -168,45 +151,27 @@ export function getUniqueLanguages(repos: GitHubRepo[]): string[] {
   return Array.from(set).sort();
 }
 
-/**
- * Format large numbers compactly: 1247 → "1.2K", 1500000 → "1.5M".
- * Used in metric cards so the number doesn't overflow.
- */
 export function formatCompact(n: number): string {
   if (n < 1000) return n.toString();
   if (n < 1_000_000) return (n / 1000).toFixed(1).replace(/\.0$/, "") + "K";
   return (n / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M";
 }
 
-/**
- * Lime/green palette for charts — derived from our accent color.
- * Recharts cycles through these for pie slices and bars.
- * Mixed warm + cool tones around the lime hub so adjacent slices stay distinguishable.
- */
 export const CHART_COLORS = [
-  "#a3e635", // lime-400 (accent)
-  "#65a30d", // lime-700
-  "#bef264", // lime-300
-  "#4d7c0f", // lime-800
-  "#84cc16", // lime-500
-  "#22c55e", // green-500
-  "#16a34a", // green-600
-  "#86efac", // green-300
-  "#15803d", // green-700
-  "#d9f99d", // lime-200
+  "#a3e635",
+  "#65a30d",
+  "#bef264",
+  "#4d7c0f",
+  "#84cc16",
+  "#22c55e",
+  "#16a34a",
+  "#86efac",
+  "#15803d",
+  "#d9f99d",
 ];
 
 /* ───────────── CSV export ───────────── */
 
-/**
- * Escape a single CSV cell.
- * Per RFC 4180:
- * - If the value contains a comma, quote, or newline → wrap in quotes
- * - Inside quotes, escape literal quotes by doubling them (" → "")
- *
- * Accepts every primitive a row might contain (booleans included — we coerce
- * them to "true"/"false" strings, which is how spreadsheets display them).
- */
 function escapeCSVCell(
   value: string | number | boolean | null | undefined,
 ): string {
@@ -218,10 +183,6 @@ function escapeCSVCell(
   return str;
 }
 
-/**
- * Convert a list of repos to a CSV string.
- * Includes the columns most useful for spreadsheet analysis — not every field GitHub returns.
- */
 export function reposToCSV(repos: GitHubRepo[]): string {
   const headers = [
     "name",
@@ -252,7 +213,7 @@ export function reposToCSV(repos: GitHubRepo[]): string {
       r.open_issues_count,
       r.fork,
       r.archived,
-      r.topics.join(" "), // space-separated keeps it valid as one cell
+      r.topics.join(" "),
       r.created_at,
       r.updated_at,
       r.html_url,
@@ -264,13 +225,6 @@ export function reposToCSV(repos: GitHubRepo[]): string {
   return [headers.join(","), ...rows].join("\n");
 }
 
-/**
- * Trigger a browser download of CSV content.
- * Works fully client-side — no server round trip.
- *
- * The BOM (Byte Order Mark) at the start makes Excel correctly detect UTF-8
- * encoding, so accented characters / emoji in repo names don't get mangled.
- */
 export function downloadCSV(csv: string, filename: string): void {
   const blob = new Blob(["\uFEFF" + csv], {
     type: "text/csv;charset=utf-8;",

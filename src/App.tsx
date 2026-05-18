@@ -57,7 +57,7 @@ export default function App() {
   const username = useAppStore((s) => s.username);
   const filters = useAppStore((s) => s.filters);
 
-  // Data layer — three queries total now, not 30+
+  // Data layer — three queries total now, not 30+ 
   const userQuery = useUser(username);
   const reposQuery = useRepos(username);
   const contributionsQuery = useContributions(username);

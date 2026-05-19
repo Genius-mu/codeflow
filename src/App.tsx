@@ -34,8 +34,12 @@ import { ChartContainer } from "./components/ChartContainer";
 import { Filters } from "./components/Filters";
 import { ReposTable } from "./components/ReposTable";
 import { Heatmap } from "./components/Heatmap";
+import {
+  FollowersGrid,
+  FollowersSectionHeader,
+} from "./components/FollowersGrid";
 
-import { useUser, useRepos, useContributions } from "./lib/hooks";
+import { useUser, useRepos, useFollowers, useContributions } from "./lib/hooks";
 import { useAppStore } from "./lib/store";
 import { useAuthStore } from "./lib/auth";
 import {
@@ -57,14 +61,15 @@ export default function App() {
   const username = useAppStore((s) => s.username);
   const filters = useAppStore((s) => s.filters);
 
-  // Data layer — three queries total now, not 30+ 
   const userQuery = useUser(username);
   const reposQuery = useRepos(username);
+  const followersQuery = useFollowers(username);
   const contributionsQuery = useContributions(username);
 
   const isLoading =
     userQuery.isLoading ||
     reposQuery.isLoading ||
+    followersQuery.isLoading ||
     contributionsQuery.isFetching;
 
   const filteredRepos = useMemo(
@@ -78,7 +83,6 @@ export default function App() {
     [filteredRepos],
   );
 
-  // Commit timeline is now derived from the contribution calendar
   const commitTimeline = useMemo(
     () => buildCommitTimeline(contributionsQuery.data, 30),
     [contributionsQuery.data],
@@ -180,6 +184,18 @@ export default function App() {
                 loading={reposQuery.isLoading}
               />
             </div>
+
+            {/* Followers grid — sits between metrics and the deep charts */}
+            {userQuery.data && userQuery.data.followers > 0 && (
+              <section className="card p-5 sm:p-6 animate-slide-up">
+                <FollowersSectionHeader totalCount={userQuery.data.followers} />
+                <FollowersGrid
+                  followers={followersQuery.data ?? []}
+                  totalCount={userQuery.data.followers}
+                  loading={followersQuery.isLoading}
+                />
+              </section>
+            )}
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <div className="lg:col-span-1">
@@ -769,6 +785,5 @@ function CustomBarTooltip({
     </div>
   );
 }
-
 
 // Working CodeFlow "Hurrayyyy, i reduced the API request from 129 to 33 (3)... the other 30 are browser request"

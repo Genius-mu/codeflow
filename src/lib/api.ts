@@ -2,16 +2,15 @@ import axios, { AxiosError } from "axios";
 import {
   GitHubUserSchema,
   GitHubReposSchema,
+  GitHubFollowersSchema,
   ContributionsResponseSchema,
   type GitHubUser,
   type GitHubRepo,
+  type GitHubFollower,
   type ContributionCalendar,
 } from "./schemas";
 import { getStoredToken } from "./oauth";
 
-/**
- * Custom error class — gives us structured info instead of cryptic axios errors.
- */
 export class GitHubAPIError extends Error {
   status?: number;
   rateLimitRemaining?: number;
@@ -24,9 +23,6 @@ export class GitHubAPIError extends Error {
   }
 }
 
-/**
- * Pre-configured axios instance for the REST API.
- */
 const client = axios.create({
   baseURL: "https://api.github.com",
   headers: {
@@ -44,14 +40,6 @@ client.interceptors.request.use((config) => {
   return config;
 });
 
-/**
- * Translates raw axios errors into our typed GitHubAPIError.
- *
- * Detecting rate limits is tricky because:
- * - Anonymous requests sometimes don't include x-ratelimit-remaining at all
- * - The header value isn't always 0 even when GitHub is throttling
- * - GitHub puts the actual reason in the response body's `message` field
- */
 function handleError(error: unknown): never {
   if (error instanceof AxiosError) {
     const status = error.response?.status;
@@ -98,9 +86,6 @@ function handleError(error: unknown): never {
   throw new GitHubAPIError("Unexpected error");
 }
 
-/**
- * Fetch a user's profile.
- */
 export async function fetchUser(username: string): Promise<GitHubUser> {
   try {
     const { data } = await client.get(`/users/${username}`);
@@ -110,15 +95,35 @@ export async function fetchUser(username: string): Promise<GitHubUser> {
   }
 }
 
-/**
- * Fetch a user's public repositories.
- */
 export async function fetchRepos(username: string): Promise<GitHubRepo[]> {
   try {
     const { data } = await client.get(`/users/${username}/repos`, {
       params: { per_page: 100, sort: "updated" },
     });
     return GitHubReposSchema.parse(data);
+  } catch (err) {
+    handleError(err);
+  }
+}
+
+/**
+ * Fetch followers — first page only, up to 90.
+ *
+ * Why 90: GitHub's max per_page is 100, but we slice to 90 because grids look
+ * best at 6/9/15/18 across — 90 divides evenly into all of those. Anyone with
+ * more followers gets a "+N more" indicator in the UI.
+ *
+ * One request, regardless of how many followers the user has.
+ */
+export async function fetchFollowers(
+  username: string,
+): Promise<GitHubFollower[]> {
+  try {
+    const { data } = await client.get(`/users/${username}/followers`, {
+      params: { per_page: 100 },
+    });
+    const parsed = GitHubFollowersSchema.parse(data);
+    return parsed.slice(0, 90);
   } catch (err) {
     handleError(err);
   }
@@ -145,15 +150,6 @@ const CONTRIBUTIONS_QUERY = `
   }
 `;
 
-/**
- * Fetch the contribution calendar via GraphQL.
- *
- * This single request returns daily contribution counts for the entire last
- * year — feeds BOTH the heatmap AND the 30-day commit chart in `utils.ts`.
- * No more per-repo commit fetching. One request, all the data.
- *
- * Auth: REQUIRES a token — GraphQL has no anonymous access.
- */
 export async function fetchContributions(
   username: string,
 ): Promise<ContributionCalendar> {

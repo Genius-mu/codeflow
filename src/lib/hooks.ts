@@ -1,12 +1,15 @@
 import { useQuery } from "@tanstack/react-query";
-import { fetchUser, fetchRepos, fetchContributions } from "./api";
+import {
+  fetchUser,
+  fetchRepos,
+  fetchFollowers,
+  fetchContributions,
+} from "./api";
 
-/**
- * React Query cache key prefixes.
- */
 export const queryKeys = {
   user: (username: string) => ["user", username] as const,
   repos: (username: string) => ["repos", username] as const,
+  followers: (username: string) => ["followers", username] as const,
   contributions: (username: string) => ["contributions", username] as const,
 };
 
@@ -40,15 +43,19 @@ export function useRepos(username: string) {
   });
 }
 
-/**
- * Fetch the contribution calendar.
- *
- * Powers BOTH the heatmap and the 30-day commit chart — one request, both
- * visualizations. Massive reduction in API usage vs. fetching commits per-repo.
- *
- * staleTime is longest of all queries (15 min) — contribution data updates
- * relatively slowly, so we cache aggressively.
- */
+export function useFollowers(username: string) {
+  return useQuery({
+    queryKey: queryKeys.followers(username),
+    queryFn: () => fetchFollowers(username),
+    enabled: username.length > 0,
+    staleTime: TEN_MINUTES,
+    retry: (failureCount, error) => {
+      if ((error as { status?: number })?.status === 404) return false;
+      return failureCount < 1;
+    },
+  });
+}
+
 export function useContributions(username: string) {
   return useQuery({
     queryKey: queryKeys.contributions(username),

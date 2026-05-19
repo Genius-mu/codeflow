@@ -1,10 +1,5 @@
 import { z } from "zod";
 
-/**
- * GitHub User schema
- * Validates the response from GET /users/{username}
- * Only fields we actually use — keeps validation cheap and types clean.
- */
 export const GitHubUserSchema = z.object({
   login: z.string(),
   id: z.number(),
@@ -23,10 +18,6 @@ export const GitHubUserSchema = z.object({
   updated_at: z.string(),
 });
 
-/**
- * GitHub Repository schema
- * Validates each item from GET /users/{username}/repos
- */
 export const GitHubRepoSchema = z.object({
   id: z.number(),
   name: z.string(),
@@ -49,10 +40,6 @@ export const GitHubRepoSchema = z.object({
   visibility: z.string().optional(),
 });
 
-/**
- * GitHub Commit schema (simplified)
- * Validates items from GET /repos/{owner}/{repo}/commits
- */
 export const GitHubCommitSchema = z.object({
   sha: z.string(),
   commit: z.object({
@@ -66,28 +53,26 @@ export const GitHubCommitSchema = z.object({
   html_url: z.string().url(),
 });
 
-/**
- * Array schemas — used to validate full list responses at once.
- */
 export const GitHubReposSchema = z.array(GitHubRepoSchema);
 export const GitHubCommitsSchema = z.array(GitHubCommitSchema);
 
 /**
- * Contribution calendar — from the GraphQL API.
- *
- * Shape returned by the GraphQL query:
- *   user.contributionsCollection.contributionCalendar = {
- *     totalContributions: number,
- *     weeks: [{ contributionDays: [{ date, contributionCount, color }] }]
- *   }
- *
- * We flatten this into a simpler shape (an array of days) in the API layer
- * because the nested weeks structure is awkward to render with.
+ * Lightweight user — what /users/{user}/followers returns.
+ * The list endpoint returns a compact subset, not the full profile shape.
  */
+export const GitHubFollowerSchema = z.object({
+  login: z.string(),
+  id: z.number(),
+  avatar_url: z.string().url(),
+  html_url: z.string().url(),
+});
+
+export const GitHubFollowersSchema = z.array(GitHubFollowerSchema);
+
 export const ContributionDaySchema = z.object({
-  date: z.string(), // "YYYY-MM-DD"
+  date: z.string(),
   contributionCount: z.number(),
-  color: z.string(), // GitHub returns its own hex but we'll override with our palette
+  color: z.string(),
 });
 
 export const ContributionCalendarSchema = z.object({
@@ -99,10 +84,6 @@ export const ContributionCalendarSchema = z.object({
   ),
 });
 
-/**
- * The full GraphQL response wrapper.
- * GraphQL always responds with `{ data: { ... } }` or `{ errors: [...] }`.
- */
 export const ContributionsResponseSchema = z.object({
   data: z
     .object({
@@ -125,11 +106,9 @@ export const ContributionsResponseSchema = z.object({
     .optional(),
 });
 
-/**
- * TypeScript types — inferred from schemas so types and validation never drift.
- */
 export type GitHubUser = z.infer<typeof GitHubUserSchema>;
 export type GitHubRepo = z.infer<typeof GitHubRepoSchema>;
 export type GitHubCommit = z.infer<typeof GitHubCommitSchema>;
+export type GitHubFollower = z.infer<typeof GitHubFollowerSchema>;
 export type ContributionDay = z.infer<typeof ContributionDaySchema>;
 export type ContributionCalendar = z.infer<typeof ContributionCalendarSchema>;

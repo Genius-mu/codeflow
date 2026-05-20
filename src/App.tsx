@@ -1,191 +1,65 @@
-import { useMemo, useState, useEffect } from "react";
-import {
-  PieChart,
-  Pie,
-  Cell,
-  LineChart,
-  Line,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  CartesianGrid,
-} from "recharts";
-import {
-  BookMarked,
-  Star,
-  GitFork,
-  Code2,
-  Users,
-  MapPin,
-  Building2,
-  Link as LinkIcon,
-  Activity,
-  LogIn,
-  X,
-  AlertCircle,
-} from "lucide-react";
+import { useState, useEffect } from "react";
+import { Code2, AlertCircle, X, Star, LogIn } from "lucide-react";
 
 import { Header } from "./components/Header";
-import { MetricCard } from "./components/MetricCard";
-import { ChartContainer } from "./components/ChartContainer";
+import { DashboardColumn } from "./components/DashboardColumn";
 import { Filters } from "./components/Filters";
 import { ReposTable } from "./components/ReposTable";
-import { Heatmap } from "./components/Heatmap";
 import {
   FollowersGrid,
   FollowersSectionHeader,
 } from "./components/FollowersGrid";
 
-import { useUser, useRepos, useFollowers, useContributions } from "./lib/hooks";
+import { useUser, useRepos, useFollowers } from "./lib/hooks";
 import { useAppStore } from "./lib/store";
 import { useAuthStore } from "./lib/auth";
-import {
-  filterRepos,
-  groupReposByLanguage,
-  buildCommitTimeline,
-  computeMetrics,
-  formatCompact,
-  getTopReposByStars,
-  CHART_COLORS,
-} from "./lib/utils";
-
-const TOOLTIP_PROPS = {
-  isAnimationActive: false,
-  wrapperStyle: { outline: "none" },
-} as const;
+import { filterRepos } from "./lib/utils";
+import { useMemo } from "react";
 
 export default function App() {
   const username = useAppStore((s) => s.username);
+  const usernameB = useAppStore((s) => s.usernameB);
+  const compareMode = useAppStore((s) => s.compareMode);
   const filters = useAppStore((s) => s.filters);
 
+  // For the "deep dive" section below the columns (filters + table + followers),
+  // we always use User A's data. In compare mode this still shows under the
+  // dual columns and pertains to A only.
   const userQuery = useUser(username);
   const reposQuery = useRepos(username);
   const followersQuery = useFollowers(username);
-  const contributionsQuery = useContributions(username);
-
-  const isLoading =
-    userQuery.isLoading ||
-    reposQuery.isLoading ||
-    followersQuery.isLoading ||
-    contributionsQuery.isFetching;
 
   const filteredRepos = useMemo(
     () => filterRepos(reposQuery.data ?? [], filters),
     [reposQuery.data, filters],
   );
 
-  const metrics = useMemo(() => computeMetrics(filteredRepos), [filteredRepos]);
-  const languageData = useMemo(
-    () => groupReposByLanguage(filteredRepos),
-    [filteredRepos],
-  );
-
-  const commitTimeline = useMemo(
-    () => buildCommitTimeline(contributionsQuery.data, 30),
-    [contributionsQuery.data],
-  );
-
-  const topRepos = useMemo(
-    () => getTopReposByStars(filteredRepos, 8),
-    [filteredRepos],
-  );
-
+  const userQueryError = userQuery.error as Error | null;
+  const reposQueryError = reposQuery.error as Error | null;
   const fatalError =
-    (userQuery.error as Error | null)?.message ??
-    (reposQuery.error as Error | null)?.message ??
-    null;
+    userQueryError?.message ?? reposQueryError?.message ?? null;
 
-  const contributionsError = contributionsQuery.error as
-    | (Error & { status?: number })
-    | null;
-  const needsToken = contributionsError?.status === 401;
+  const isLoading = userQuery.isLoading || reposQuery.isLoading;
 
   return (
     <div className="min-h-screen">
       <Header isLoading={isLoading} />
 
       <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-        {!username && <WelcomeState />}
-        {username && fatalError && <ErrorState message={fatalError} />}
+        {/* No username at all — welcome state */}
+        {!username && !compareMode && <WelcomeState />}
 
-        {username && !fatalError && (
+        {/* Single mode + fatal error */}
+        {!compareMode && username && fatalError && (
+          <ErrorState message={fatalError} />
+        )}
+
+        {/* SINGLE MODE — one column, full dashboard */}
+        {!compareMode && username && !fatalError && (
           <>
-            {userQuery.data && (
-              <ProfileStrip
-                avatar={userQuery.data.avatar_url}
-                name={userQuery.data.name ?? userQuery.data.login}
-                login={userQuery.data.login}
-                bio={userQuery.data.bio}
-                followers={userQuery.data.followers}
-                following={userQuery.data.following}
-                location={userQuery.data.location}
-                company={userQuery.data.company}
-                blog={userQuery.data.blog}
-              />
-            )}
+            <DashboardColumn username={username} accent="lime" />
 
-            <section className="card p-5 sm:p-6 animate-slide-up">
-              <div className="flex items-start justify-between gap-3 mb-5 flex-wrap">
-                <div>
-                  <h3 className="font-display font-semibold text-base sm:text-lg text-text-primary tracking-tight flex items-center gap-2">
-                    <Activity
-                      className="w-4 h-4 text-accent"
-                      strokeWidth={2.25}
-                    />
-                    Contribution activity
-                  </h3>
-                  <p className="mt-0.5 text-xs text-text-muted">
-                    {contributionsQuery.data
-                      ? `${contributionsQuery.data.totalContributions.toLocaleString()} contributions in the last year`
-                      : "Last 12 months"}
-                  </p>
-                </div>
-              </div>
-
-              {contributionsQuery.isLoading ? (
-                <HeatmapSkeleton />
-              ) : needsToken ? (
-                <HeatmapSignInPrompt />
-              ) : contributionsError ? (
-                <p className="text-sm text-text-muted py-8 text-center font-mono">
-                  Couldn't load contribution data: {contributionsError.message}
-                </p>
-              ) : contributionsQuery.data ? (
-                <Heatmap calendar={contributionsQuery.data} />
-              ) : null}
-            </section>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <MetricCard
-                label="Total Repos"
-                value={formatCompact(metrics.totalRepos)}
-                icon={BookMarked}
-                loading={reposQuery.isLoading}
-              />
-              <MetricCard
-                label="Total Stars"
-                value={formatCompact(metrics.totalStars)}
-                icon={Star}
-                loading={reposQuery.isLoading}
-              />
-              <MetricCard
-                label="Total Forks"
-                value={formatCompact(metrics.totalForks)}
-                icon={GitFork}
-                loading={reposQuery.isLoading}
-              />
-              <MetricCard
-                label="Top Language"
-                value={metrics.topLanguage ?? "—"}
-                icon={Code2}
-                loading={reposQuery.isLoading}
-              />
-            </div>
-
-            {/* Followers grid — sits between metrics and the deep charts */}
+            {/* Followers grid (single mode only) */}
             {userQuery.data && userQuery.data.followers > 0 && (
               <section className="card p-5 sm:p-6 animate-slide-up">
                 <FollowersSectionHeader totalCount={userQuery.data.followers} />
@@ -197,223 +71,32 @@ export default function App() {
               </section>
             )}
 
+            {/* Filters + repos table (single mode only) */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <div className="lg:col-span-1">
                 {reposQuery.data && <Filters repos={reposQuery.data} />}
               </div>
-
-              <div className="lg:col-span-2 space-y-4">
-                <ChartContainer
-                  title="Languages"
-                  subtitle="Distribution across filtered repos"
-                  loading={reposQuery.isLoading}
-                  isEmpty={!reposQuery.isLoading && languageData.length === 0}
-                  emptyMessage="No repos match your filters"
-                  skeletonType="donut"
-                >
-                  <ResponsiveContainer width="100%" height={280}>
-                    <PieChart>
-                      <Pie
-                        data={languageData}
-                        dataKey="value"
-                        nameKey="name"
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={60}
-                        outerRadius={100}
-                        paddingAngle={2}
-                        stroke="var(--color-bg-surface)"
-                        strokeWidth={2}
-                        isAnimationActive={false}
-                      >
-                        {languageData.map((_, i) => (
-                          <Cell
-                            key={i}
-                            fill={CHART_COLORS[i % CHART_COLORS.length]}
-                          />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        {...TOOLTIP_PROPS}
-                        content={<CustomPieTooltip />}
-                        cursor={{ fill: "transparent" }}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-
-                  <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5 justify-center">
-                    {languageData.slice(0, 8).map((d, i) => (
-                      <div
-                        key={d.name}
-                        className="flex items-center gap-1.5 text-xs"
-                      >
-                        <span
-                          className="w-2.5 h-2.5 rounded-sm"
-                          style={{
-                            backgroundColor:
-                              CHART_COLORS[i % CHART_COLORS.length],
-                          }}
-                        />
-                        <span className="text-text-secondary font-mono">
-                          {d.name}
-                        </span>
-                        <span className="text-text-muted font-mono">
-                          {d.percentage}%
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </ChartContainer>
-
-                <ChartContainer
-                  title="Top repos by stars"
-                  subtitle="Highest-starred repositories"
-                  loading={reposQuery.isLoading}
-                  isEmpty={!reposQuery.isLoading && topRepos.length === 0}
-                  emptyMessage="No repos to rank"
-                  skeletonType="bars"
-                >
-                  <ResponsiveContainer width="100%" height={280}>
-                    <BarChart
-                      data={topRepos}
-                      layout="vertical"
-                      margin={{ top: 5, right: 16, bottom: 5, left: 0 }}
-                    >
-                      <defs>
-                        <linearGradient
-                          id="barGradient"
-                          x1="0"
-                          y1="0"
-                          x2="1"
-                          y2="0"
-                        >
-                          <stop offset="0%" stopColor="#65a30d" />
-                          <stop offset="100%" stopColor="#a3e635" />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid
-                        strokeDasharray="3 3"
-                        stroke="var(--color-bg-border)"
-                        horizontal={false}
-                      />
-                      <XAxis
-                        type="number"
-                        stroke="var(--color-text-muted)"
-                        fontSize={10}
-                        tickLine={false}
-                        axisLine={false}
-                        allowDecimals={false}
-                      />
-                      <YAxis
-                        type="category"
-                        dataKey="name"
-                        stroke="var(--color-text-muted)"
-                        fontSize={10}
-                        tickLine={false}
-                        axisLine={false}
-                        width={110}
-                      />
-                      <Tooltip
-                        {...TOOLTIP_PROPS}
-                        content={<CustomBarTooltip />}
-                        cursor={{
-                          fill: "var(--color-bg-elevated)",
-                          opacity: 0.4,
-                        }}
-                      />
-                      <Bar
-                        dataKey="stars"
-                        fill="url(#barGradient)"
-                        radius={[0, 4, 4, 0]}
-                        isAnimationActive={false}
-                      />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </ChartContainer>
-
-                <ChartContainer
-                  title="Activity (last 30 days)"
-                  subtitle="Daily contributions across all repos"
-                  loading={contributionsQuery.isLoading}
-                  isEmpty={
-                    !contributionsQuery.isLoading &&
-                    commitTimeline.every((d) => d.commits === 0)
-                  }
-                  emptyMessage="No activity in the last 30 days"
-                  skeletonType="line"
-                >
-                  <ResponsiveContainer width="100%" height={280}>
-                    <LineChart
-                      data={commitTimeline}
-                      margin={{ top: 10, right: 10, bottom: 0, left: -16 }}
-                    >
-                      <defs>
-                        <linearGradient
-                          id="lineGradient"
-                          x1="0"
-                          y1="0"
-                          x2="1"
-                          y2="0"
-                        >
-                          <stop offset="0%" stopColor="#84cc16" />
-                          <stop offset="100%" stopColor="#a3e635" />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid
-                        strokeDasharray="3 3"
-                        stroke="var(--color-bg-border)"
-                        vertical={false}
-                      />
-                      <XAxis
-                        dataKey="label"
-                        stroke="var(--color-text-muted)"
-                        fontSize={10}
-                        tickLine={false}
-                        axisLine={false}
-                        interval={4}
-                      />
-                      <YAxis
-                        stroke="var(--color-text-muted)"
-                        fontSize={10}
-                        tickLine={false}
-                        axisLine={false}
-                        allowDecimals={false}
-                      />
-                      <Tooltip
-                        {...TOOLTIP_PROPS}
-                        content={<CustomLineTooltip />}
-                        cursor={{
-                          stroke: "var(--color-accent)",
-                          strokeWidth: 1,
-                          strokeDasharray: "3 3",
-                        }}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="commits"
-                        stroke="url(#lineGradient)"
-                        strokeWidth={2.5}
-                        dot={false}
-                        activeDot={{
-                          r: 5,
-                          fill: "#a3e635",
-                          stroke: "var(--color-bg-surface)",
-                          strokeWidth: 2,
-                        }}
-                        isAnimationActive={false}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </ChartContainer>
+              <div className="lg:col-span-2">
+                <ReposTable
+                  repos={filteredRepos}
+                  pageSize={10}
+                  exportFilename={`${username}-repos.csv`}
+                />
               </div>
             </div>
 
-            <ReposTable
-              repos={filteredRepos}
-              pageSize={10}
-              exportFilename={`${username}-repos.csv`}
-            />
+            <Footer />
+          </>
+        )}
 
+        {/* COMPARE MODE — two columns side-by-side */}
+        {compareMode && (
+          <>
+            <CompareHint visible={!username || !usernameB} />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <DashboardColumn username={username} accent="lime" />
+              <DashboardColumn username={usernameB} accent="sky" />
+            </div>
             <Footer />
           </>
         )}
@@ -424,58 +107,16 @@ export default function App() {
   );
 }
 
-/* ─────────── Heatmap support components ─────────── */
+/* ─────────── Helpers ─────────── */
 
-function HeatmapSkeleton() {
+function CompareHint({ visible }: { visible: boolean }) {
+  if (!visible) return null;
   return (
-    <div className="overflow-x-auto -mx-1 px-1">
-      <div className="flex gap-[3px] py-2" aria-hidden>
-        {Array.from({ length: 53 }).map((_, w) => (
-          <div key={w} className="flex flex-col gap-[3px]">
-            {Array.from({ length: 7 }).map((_, d) => (
-              <div
-                key={d}
-                className="w-[11px] h-[11px] rounded-[2px] bg-bg-elevated relative overflow-hidden"
-              >
-                <div
-                  className="absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-bg-border to-transparent bg-[length:1000px_100%]"
-                  style={{ animationDelay: `${(w * 7 + d) * 8}ms` }}
-                />
-              </div>
-            ))}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function HeatmapSignInPrompt() {
-  const signIn = useAuthStore((s) => s.signIn);
-  const isOAuthConfigured = useAuthStore((s) => s.isOAuthConfigured);
-
-  return (
-    <div className="text-center py-10 px-4 animate-fade-in">
-      <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-accent/10 ring-1 ring-accent/30 mx-auto mb-4">
-        <Activity className="w-6 h-6 text-accent" strokeWidth={2.25} />
-      </div>
-      <p className="text-sm text-text-primary font-medium">
-        Sign in to see contribution data
+    <div className="card p-5 text-center animate-fade-in max-w-2xl mx-auto">
+      <p className="text-sm text-text-secondary">
+        <span className="font-semibold text-text-primary">Compare mode</span> —
+        enter two GitHub usernames above to see them side-by-side.
       </p>
-      <p className="text-xs text-text-muted mt-1.5 max-w-md mx-auto">
-        GitHub's GraphQL API requires authentication.
-        {isOAuthConfigured ? " One click — no token to copy." : ""}
-      </p>
-      {isOAuthConfigured ? (
-        <button onClick={signIn} className="btn-primary text-sm mt-5">
-          <LogIn className="w-4 h-4" strokeWidth={2.25} />
-          Sign in with GitHub
-        </button>
-      ) : (
-        <p className="text-xs text-text-muted mt-4">
-          OAuth isn't configured on this deployment.
-        </p>
-      )}
     </div>
   );
 }
@@ -535,7 +176,7 @@ function WelcomeState() {
       </h1>
       <p className="mt-3 text-text-secondary max-w-md">
         Search any GitHub user to explore their repositories, language mix, and
-        commit activity at a glance.
+        commit activity. Or use compare mode to put two developers side-by-side.
       </p>
       <div className="mt-6 flex flex-wrap gap-2 justify-center text-xs font-mono text-text-muted">
         <span>Try:</span>
@@ -612,94 +253,6 @@ function RateLimitState() {
   );
 }
 
-interface ProfileStripProps {
-  avatar: string;
-  name: string;
-  login: string;
-  bio: string | null;
-  followers: number;
-  following: number;
-  location: string | null;
-  company: string | null;
-  blog: string | null;
-}
-
-function ProfileStrip({
-  avatar,
-  name,
-  login,
-  bio,
-  followers,
-  following,
-  location,
-  company,
-  blog,
-}: ProfileStripProps) {
-  return (
-    <section className="card p-5 sm:p-6 animate-slide-up">
-      <div className="flex flex-col sm:flex-row gap-5 items-start">
-        <img
-          src={avatar}
-          alt={`${login}'s avatar`}
-          className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl ring-2 ring-bg-border transition-all duration-300 hover:ring-accent/40 hover:scale-105"
-          loading="lazy"
-        />
-        <div className="flex-1 min-w-0">
-          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            <h2 className="font-display font-bold text-2xl text-text-primary tracking-tight">
-              {name}
-            </h2>
-            <span className="font-mono text-sm text-text-muted">@{login}</span>
-          </div>
-          {bio && (
-            <p className="mt-1.5 text-sm text-text-secondary leading-relaxed max-w-2xl">
-              {bio}
-            </p>
-          )}
-          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-text-muted">
-            <span className="flex items-center gap-1.5">
-              <Users className="w-3.5 h-3.5" />
-              <span className="text-text-secondary font-mono tabular-nums">
-                {formatCompact(followers)}
-              </span>{" "}
-              followers
-            </span>
-            <span className="flex items-center gap-1.5 font-mono">
-              <span className="tabular-nums text-text-secondary">
-                {following}
-              </span>{" "}
-              following
-            </span>
-            {location && (
-              <span className="flex items-center gap-1.5">
-                <MapPin className="w-3.5 h-3.5" />
-                {location}
-              </span>
-            )}
-            {company && (
-              <span className="flex items-center gap-1.5">
-                <Building2 className="w-3.5 h-3.5" />
-                {company}
-              </span>
-            )}
-            {blog && (
-              <a
-                href={blog.startsWith("http") ? blog : `https://${blog}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1.5 text-accent hover:text-accent-hover transition-colors"
-              >
-                <LinkIcon className="w-3.5 h-3.5" />
-                {blog.replace(/^https?:\/\//, "")}
-              </a>
-            )}
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
 function Footer() {
   return (
     <footer className="pt-8 pb-4 text-center text-xs font-mono text-text-muted">
@@ -707,83 +260,3 @@ function Footer() {
     </footer>
   );
 }
-
-interface TooltipPayload {
-  name?: string;
-  value?: number;
-  payload?: {
-    name?: string;
-    percentage?: number;
-    label?: string;
-    fullName?: string;
-    forks?: number;
-  };
-}
-
-function CustomPieTooltip({
-  active,
-  payload,
-}: {
-  active?: boolean;
-  payload?: TooltipPayload[];
-}) {
-  if (!active || !payload?.length) return null;
-  const d = payload[0];
-  return (
-    <div className="glass rounded-lg px-3 py-2 text-xs shadow-xl">
-      <div className="font-mono text-text-primary font-semibold">
-        {d.name ?? d.payload?.name}
-      </div>
-      <div className="font-mono text-text-secondary tabular-nums">
-        {d.value} repos · {d.payload?.percentage}%
-      </div>
-    </div>
-  );
-}
-
-function CustomLineTooltip({
-  active,
-  payload,
-}: {
-  active?: boolean;
-  payload?: TooltipPayload[];
-}) {
-  if (!active || !payload?.length) return null;
-  const d = payload[0];
-  return (
-    <div className="glass rounded-lg px-3 py-2 text-xs shadow-xl">
-      <div className="font-mono text-text-muted">{d.payload?.label}</div>
-      <div className="font-mono text-accent tabular-nums font-semibold">
-        {d.value} contribution{d.value === 1 ? "" : "s"}
-      </div>
-    </div>
-  );
-}
-
-function CustomBarTooltip({
-  active,
-  payload,
-}: {
-  active?: boolean;
-  payload?: TooltipPayload[];
-}) {
-  if (!active || !payload?.length) return null;
-  const d = payload[0];
-  const fullName = d.payload?.fullName;
-  const forks = d.payload?.forks ?? 0;
-  return (
-    <div className="glass rounded-lg px-3 py-2 text-xs shadow-xl">
-      <div className="font-mono text-text-primary font-semibold">
-        {fullName}
-      </div>
-      <div className="font-mono text-accent tabular-nums">
-        ★ {d.value} stars
-      </div>
-      <div className="font-mono text-text-muted tabular-nums">
-        ⑂ {forks} forks
-      </div>
-    </div>
-  );
-}
-
-// Working CodeFlow "Hurrayyyy, i reduced the API request from 129 to 33 (3)... the other 30 are browser request"

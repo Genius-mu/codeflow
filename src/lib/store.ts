@@ -1,126 +1,142 @@
 import { create } from "zustand";
 
-/**
- * Filter state shape.
- * - languages: empty array means "all languages" (no filter active)
- * - minStars: 0 means "no minimum" (no filter active)
- * Keeping these as "empty = inactive" lets us check `isFiltering` cheaply.
- */
 export interface Filters {
+  /** Languages to include. Empty array = include all. */
   languages: string[];
+  /** Minimum star count to include a repo. */
   minStars: number;
+  /** Whether to include forked repos. */
   includeForks: boolean;
 }
 
 interface AppState {
-  // Search
   username: string;
-  setUsername: (username: string) => void;
-
-  // Filters
+  usernameB: string;
+  compareMode: boolean;
   filters: Filters;
-  setLanguages: (languages: string[]) => void;
-  toggleLanguage: (language: string) => void;
-  setMinStars: (minStars: number) => void;
-  setIncludeForks: (includeForks: boolean) => void;
-  resetFilters: () => void;
 
-  // UI
-  isFiltersOpen: boolean;
-  toggleFilters: () => void;
+  setUsername: (username: string) => void;
+  setUsernameB: (username: string) => void;
+  enterCompareMode: (b: string) => void;
+  exitCompareMode: () => void;
+  setFilters: (filters: Partial<Filters>) => void;
+  resetFilters: () => void;
 }
 
-const DEFAULT_FILTERS: Filters = {
+const initialFilters: Filters = {
   languages: [],
   minStars: 0,
-  includeForks: false,
+  includeForks: true,
 };
 
 /**
- * Read the initial username from ?user= in the URL.
- * Runs once at module load. Falls back to empty string.
+ * Read state from the URL on initial load.
+ * Supports two URL shapes:
+ *   /?user=X         → single mode, viewing X
+ *   /?a=X&b=Y        → compare mode, viewing X vs Y
+ *
+ * If both shapes are present, compare wins (it's more specific).
  */
-function readUsernameFromURL(): string {
-  if (typeof window === "undefined") return "";
+function readInitial(): {
+  username: string;
+  usernameB: string;
+  compareMode: boolean;
+} {
+  if (typeof window === "undefined") {
+    return { username: "", usernameB: "", compareMode: false };
+  }
   const params = new URLSearchParams(window.location.search);
-  return (params.get("user") ?? "").trim();
+  const a = params.get("a")?.trim() ?? "";
+  const b = params.get("b")?.trim() ?? "";
+  const single = params.get("user")?.trim() ?? "";
+
+  if (a && b) {
+    return { username: a, usernameB: b, compareMode: true };
+  }
+  return { username: single || a, usernameB: "", compareMode: false };
 }
 
 /**
- * Sync username back to the URL without triggering a navigation.
- * - replaceState (not pushState) → doesn't pollute browser history with every search
- * - Empty username → remove the ?user= param entirely (clean URLs)
+ * Push the current state into the URL.
+ * Uses `replaceState` so we don't pollute browser history on every keystroke.
  */
-function syncUsernameToURL(username: string): void {
+function writeURL(username: string, usernameB: string, compareMode: boolean) {
   if (typeof window === "undefined") return;
   const url = new URL(window.location.href);
-  if (username) {
+  // Clear all known keys first so we don't leave stale ones
+  url.searchParams.delete("user");
+  url.searchParams.delete("a");
+  url.searchParams.delete("b");
+
+  if (compareMode && username && usernameB) {
+    url.searchParams.set("a", username);
+    url.searchParams.set("b", usernameB);
+  } else if (username) {
     url.searchParams.set("user", username);
-  } else {
-    url.searchParams.delete("user");
   }
-  window.history.replaceState({}, "", url.toString());
+
+  history.replaceState({}, "", url.toString());
 }
 
-/**
- * Single global store.
- * Components subscribe with selectors:
- *   const username = useAppStore(s => s.username)
- * Only that slice causes re-renders, not the whole store.
- */
-export const useAppStore = create<AppState>((set) => ({
-  // Search — initial value pulled from URL
-  username: readUsernameFromURL(),
+const initial = readInitial();
+
+export const useAppStore = create<AppState>((set, get) => ({
+  username: initial.username,
+  usernameB: initial.usernameB,
+  compareMode: initial.compareMode,
+  filters: initialFilters,
+
   setUsername: (username) => {
-    const trimmed = username.trim();
-    syncUsernameToURL(trimmed);
-    set({ username: trimmed });
+    const clean = username.trim();
+    const { usernameB, compareMode } = get();
+    set({ username: clean });
+    writeURL(clean, usernameB, compareMode);
   },
 
-  // Filters
-  filters: DEFAULT_FILTERS,
-  setLanguages: (languages) =>
-    set((state) => ({ filters: { ...state.filters, languages } })),
+  setUsernameB: (username) => {
+    const clean = username.trim();
+    const { username: a, compareMode } = get();
+    set({ usernameB: clean });
+    writeURL(a, clean, compareMode);
+  },
 
-  toggleLanguage: (language) =>
-    set((state) => {
-      const current = state.filters.languages;
-      const next = current.includes(language)
-        ? current.filter((l) => l !== language)
-        : [...current, language];
-      return { filters: { ...state.filters, languages: next } };
-    }),
+  enterCompareMode: (b) => {
+    const clean = b.trim();
+    const { username } = get();
+    set({ usernameB: clean, compareMode: true });
+    writeURL(username, clean, true);
+  },
 
-  setMinStars: (minStars) =>
-    set((state) => ({ filters: { ...state.filters, minStars } })),
+  exitCompareMode: () => {
+    const { username } = get();
+    set({ usernameB: "", compareMode: false });
+    writeURL(username, "", false);
+  },
 
-  setIncludeForks: (includeForks) =>
-    set((state) => ({ filters: { ...state.filters, includeForks } })),
-
-  resetFilters: () => set({ filters: DEFAULT_FILTERS }),
-
-  // UI
-  isFiltersOpen: false,
-  toggleFilters: () =>
-    set((state) => ({ isFiltersOpen: !state.isFiltersOpen })),
+  setFilters: (partial) =>
+    set((s) => ({ filters: { ...s.filters, ...partial } })),
+  resetFilters: () => set({ filters: initialFilters }),
 }));
 
 /**
- * Listen for browser back/forward navigation and sync the store.
- * Without this, hitting Back wouldn't update the dashboard.
+ * Sync the store back from the URL when the user uses browser back/forward.
  */
 if (typeof window !== "undefined") {
   window.addEventListener("popstate", () => {
-    const username = readUsernameFromURL();
-    useAppStore.setState({ username });
+    const next = readInitial();
+    useAppStore.setState({
+      username: next.username,
+      usernameB: next.usernameB,
+      compareMode: next.compareMode,
+    });
   });
 }
 
 /**
- * Derived selector — returns true if any filter is active.
- * Used to show a badge/indicator on the filters button.
+ * Selector — true if any non-default filter is active.
+ * Used by Filters.tsx to show the "Reset" button only when needed.
  */
-export const selectIsFiltering = (state: AppState): boolean =>
-  state.filters.languages.length > 0 ||
-  state.filters.minStars > 0 ||
-  state.filters.includeForks;
+export const selectIsFiltering = (s: AppState): boolean =>
+  s.filters.languages.length > 0 ||
+  s.filters.minStars > 0 ||
+  !s.filters.includeForks;

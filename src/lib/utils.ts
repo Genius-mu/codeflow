@@ -1,13 +1,6 @@
 import type { GitHubRepo, ContributionCalendar } from "./schemas";
 import type { Filters } from "./store";
 
-/**
- * Apply user filters to a list of repos.
- * Pure function — same input always produces same output.
- *
- * Order matters for performance: cheapest checks first so we
- * short-circuit before evaluating more expensive ones.
- */
 export function filterRepos(
   repos: GitHubRepo[],
   filters: Filters,
@@ -50,15 +43,6 @@ export function groupReposByLanguage(repos: GitHubRepo[]): LanguageDatum[] {
     .sort((a, b) => b.value - a.value);
 }
 
-/**
- * Build a daily activity timeline from the contribution calendar.
- *
- * The calendar already gives us daily contribution counts — we just need to
- * filter to the last N days and reshape for Recharts.
- *
- * Returns one entry per day in the range, including zero-activity days,
- * so the line chart is continuous.
- */
 export interface CommitDatum {
   date: string;
   label: string;
@@ -71,13 +55,9 @@ export function buildCommitTimeline(
 ): CommitDatum[] {
   if (!calendar) return [];
 
-  // Flatten weeks → days
   const allDays = calendar.weeks.flatMap((w) => w.contributionDays);
-
-  // Index by date for O(1) lookup
   const byDate = new Map(allDays.map((d) => [d.date, d.contributionCount]));
 
-  // Emit every day in the window, in chronological order
   const timeline: CommitDatum[] = [];
   const today = new Date();
   for (let i = daysBack - 1; i >= 0; i--) {
@@ -157,6 +137,11 @@ export function formatCompact(n: number): string {
   return (n / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M";
 }
 
+/* ───────────── Chart palettes ───────────── */
+
+/**
+ * Column A — lime, our brand accent.
+ */
 export const CHART_COLORS = [
   "#a3e635",
   "#65a30d",
@@ -168,6 +153,24 @@ export const CHART_COLORS = [
   "#86efac",
   "#15803d",
   "#d9f99d",
+];
+
+/**
+ * Column B — sky blue, for compare mode visual differentiation.
+ * Chosen because it's complementary to lime (high contrast across the wheel)
+ * but still feels cool and modern — not red/warning, not aggressive.
+ */
+export const CHART_COLORS_B = [
+  "#38bdf8",
+  "#0284c7",
+  "#7dd3fc",
+  "#0369a1",
+  "#0ea5e9",
+  "#06b6d4",
+  "#0891b2",
+  "#bae6fd",
+  "#155e75",
+  "#e0f2fe",
 ];
 
 /* ───────────── CSV export ───────────── */

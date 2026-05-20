@@ -10,20 +10,31 @@ export interface Filters {
 }
 
 interface AppState {
+  // Search — single and compare modes
   username: string;
   usernameB: string;
   compareMode: boolean;
-  filters: Filters;
 
   setUsername: (username: string) => void;
   setUsernameB: (username: string) => void;
   enterCompareMode: (b: string) => void;
   exitCompareMode: () => void;
-  setFilters: (filters: Partial<Filters>) => void;
+
+  // Filters
+  filters: Filters;
+  setLanguages: (languages: string[]) => void;
+  toggleLanguage: (language: string) => void;
+  setMinStars: (minStars: number) => void;
+  setIncludeForks: (includeForks: boolean) => void;
+  setFilters: (partial: Partial<Filters>) => void;
   resetFilters: () => void;
+
+  // UI
+  isFiltersOpen: boolean;
+  toggleFilters: () => void;
 }
 
-const initialFilters: Filters = {
+const DEFAULT_FILTERS: Filters = {
   languages: [],
   minStars: 0,
   includeForks: true,
@@ -63,7 +74,6 @@ function readInitial(): {
 function writeURL(username: string, usernameB: string, compareMode: boolean) {
   if (typeof window === "undefined") return;
   const url = new URL(window.location.href);
-  // Clear all known keys first so we don't leave stale ones
   url.searchParams.delete("user");
   url.searchParams.delete("a");
   url.searchParams.delete("b");
@@ -84,7 +94,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   username: initial.username,
   usernameB: initial.usernameB,
   compareMode: initial.compareMode,
-  filters: initialFilters,
+  filters: DEFAULT_FILTERS,
+  isFiltersOpen: false,
 
   setUsername: (username) => {
     const clean = username.trim();
@@ -113,9 +124,32 @@ export const useAppStore = create<AppState>((set, get) => ({
     writeURL(username, "", false);
   },
 
+  // Filters
+  setLanguages: (languages) =>
+    set((s) => ({ filters: { ...s.filters, languages } })),
+
+  toggleLanguage: (language) =>
+    set((s) => {
+      const current = s.filters.languages;
+      const next = current.includes(language)
+        ? current.filter((l) => l !== language)
+        : [...current, language];
+      return { filters: { ...s.filters, languages: next } };
+    }),
+
+  setMinStars: (minStars) =>
+    set((s) => ({ filters: { ...s.filters, minStars } })),
+
+  setIncludeForks: (includeForks) =>
+    set((s) => ({ filters: { ...s.filters, includeForks } })),
+
   setFilters: (partial) =>
     set((s) => ({ filters: { ...s.filters, ...partial } })),
-  resetFilters: () => set({ filters: initialFilters }),
+
+  resetFilters: () => set({ filters: DEFAULT_FILTERS }),
+
+  // UI
+  toggleFilters: () => set((s) => ({ isFiltersOpen: !s.isFiltersOpen })),
 }));
 
 /**
@@ -133,8 +167,8 @@ if (typeof window !== "undefined") {
 }
 
 /**
- * Selector — true if any non-default filter is active.
- * Used by Filters.tsx to show the "Reset" button only when needed.
+ * Derived selector — true if any non-default filter is active.
+ * Used by Filters.tsx to show the "Active" badge and Reset button.
  */
 export const selectIsFiltering = (s: AppState): boolean =>
   s.filters.languages.length > 0 ||

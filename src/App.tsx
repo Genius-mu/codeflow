@@ -260,3 +260,5 @@ function Footer() {
     </footer>
   );
 }
+
+// Working CodeFlow "Hurrayyyy, i reduced the API request from 129 to 33 (3)... the other 30 are browser request"
